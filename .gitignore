@@ -1,0 +1,33 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# FEM solver
+FastHenry2/bin/
+FastHenry2/.git/
+FastHenry2/src/fasthenry/*.o
+FastHenry2/src/zbuf/*.o
+FastHenry2/src/misc/*.o
+FastHenry2/src/fasthenry/sparse/*.o
+FastHenry2/src/fasthenry/sparse/*.a
+
+# Output files
+Zc.mat
+*.mat
+sweep_data/dual_gap_*.inp
+*.pyc
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
