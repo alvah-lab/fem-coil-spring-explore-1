@@ -1,0 +1,2 @@
+"""Resonance detection."""
+pass

@@ -1,0 +1,26 @@
+{
+  "timestamp": "2026-07-12",
+  "configuration": {
+    "turns": 20,
+    "mean_radius_mm": 5.0,
+    "wire_radius_mm": 0.25,
+    "initial_length_mm": 50.0
+  },
+  "state_grid": {
+    "epsilon_points": 11,
+    "kappa_points": 11,
+    "total_states": 121
+  },
+  "results": {
+    "valid_states": 11,
+    "invalid_states": 110,
+    "length_range_mm": [
+      40.00000000000001,
+      50.0
+    ],
+    "eta_range": [
+      0.0,
+      0.0
+    ]
+  }
+}

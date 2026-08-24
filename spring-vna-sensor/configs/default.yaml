@@ -1,0 +1,81 @@
+# Default configuration for spring coil VNA sensor simulation
+# M0 Phase: Concept validation with synthetic data
+
+project:
+  name: spring_coil_vna_sensor
+  version: 0.1.0
+  description: "Double-parameter VNA identification of spring coil compression and bending"
+
+geometry:
+  turns: 20
+  mean_radius_m: 5.0e-3
+  wire_radius_m: 2.5e-4
+  initial_axis_length_m: 5.0e-2
+  insulation_thickness_m: 2.5e-5
+  insulation_eps_r: 3.0
+  geometry_mode: fixed_radius  # or preserved_wire_length
+
+state_grid:
+  epsilon_min: 0.0
+  epsilon_max: 0.20
+  epsilon_count: 11
+  kappa_min_per_m: 0.0
+  kappa_max_per_m: 20.0
+  kappa_count: 11
+  bend_phi_deg: [0, 30, 60, 90, 120, 150]
+
+materials:
+  baseline_conductor: PEC
+  finite_conductor: copper
+  copper_conductivity_s_per_m: 5.8e7
+
+ports:
+  reference_impedance_ohm: 50.0
+  type: differential_lumped
+
+external_caps:
+  include_unloaded: true
+  search_min_f: 1.0e-13
+  search_max_f: 1.0e-10
+  search_count: 31
+
+frequency:
+  start_hz: 1.0e6
+  end_hz: 1.0e9
+  points: 31
+
+solvers:
+  primary: palace
+  backup: openems
+  comsol: null
+
+observation:
+  use_full_spectrum: true
+  use_feature_extraction: false
+  feature_list: ["L_low", "f1", "Q1", "f2", "Q2"]
+
+identifiability:
+  noise_model: gaussian
+  noise_level_db: 60  # 60 dB SNR baseline
+  monte_carlo_samples: 1000
+
+mesh:
+  coarse_target_size: 2.0e-4
+  medium_target_size: 1.0e-4
+  fine_target_size: 5.0e-5
+
+boundary:
+  air_domain_radius_multiplier: 3.0
+  absorbing_boundary_order: 2
+
+acceptance:
+  target_epsilon_resolution: 0.005
+  target_kappa_resolution_per_m: 0.5
+  max_condition_number_preferred: 30
+  max_condition_number_allowed: 100
+  minimum_global_mahalanobis_distance: 6.0
+  max_resonance_mesh_error_fraction: 0.005
+  max_inductance_mesh_error_fraction: 0.01
+  blind_rmse_epsilon_fraction_of_full_scale: 0.02
+  blind_rmse_kappa_fraction_of_full_scale: 0.05
+  direction_error_fraction_of_target_resolution: 0.5

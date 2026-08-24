@@ -1,0 +1,25 @@
+{
+  "timestamp": "2026-07-12",
+  "tests": {
+    "full_rank_jacobian": {
+      "pass": true,
+      "full_rank_coverage_pct": 100.0,
+      "max_condition_number": 35.95237565591272
+    },
+    "global_uniqueness": {
+      "pass": false,
+      "min_mahalanobis_distance": 1.5651379396451541,
+      "confusing_pairs": 144
+    },
+    "blind_inversion_clean": {
+      "pass": true,
+      "mean_epsilon_error_pct": 6.167905692361982e-15
+    },
+    "noise_robustness": {
+      "pass": true,
+      "rmse_epsilon": 0.0,
+      "rmse_eta": 0.0
+    }
+  },
+  "overall": false
+}

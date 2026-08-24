@@ -1,33 +1,18 @@
-# Python
+# python
 venv/
 __pycache__/
 *.pyc
-*.pyo
-*.egg-info/
-dist/
-build/
 
-# FEM solver
-FastHenry2/bin/
-FastHenry2/.git/
-FastHenry2/src/fasthenry/*.o
-FastHenry2/src/zbuf/*.o
-FastHenry2/src/misc/*.o
-FastHenry2/src/fasthenry/sparse/*.o
-FastHenry2/src/fasthenry/sparse/*.a
+# Palace 构建树 (3.4GB, 按 SKILL_fem_simulation.md 重新编译; 二进制在 palace/install/bin/palace)
+palace/
 
-# Output files
+# 可再生的大文件: gmsh 网格由 palace_runs 内生成脚本重建
+*.msh
+
+# FastHenry 运行临时文件
 Zc.mat
-*.mat
-sweep_data/dual_gap_*.inp
-*.pyc
+*_tmp.inp
+b.mat
 
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# OS
-.DS_Store
-Thumbs.db
+# FastHenry2: 独立 git 克隆 (FastFieldSolvers/FastHenry2), 本地已编译 bin/fasthenry
+FastHenry2/

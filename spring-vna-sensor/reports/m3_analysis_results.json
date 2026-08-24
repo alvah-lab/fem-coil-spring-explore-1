@@ -1,0 +1,20 @@
+{
+  "timestamp": "2026-07-12T01:00:20.742613",
+  "data_source": "Palace Mock M2 (Grid-based Analysis)",
+  "grid_info": {
+    "epsilon_count": 11,
+    "kappa_count": 11,
+    "total_points": 121
+  },
+  "analysis": {
+    "valid_jacobians": 100,
+    "rank_2_count": 100,
+    "rank_2_percent": 100.0
+  },
+  "conditioning": {
+    "cond_mean": 4830.28789426845,
+    "cond_max": 24507.187062408102,
+    "all_below_100": false
+  },
+  "conclusion": "EM-based identifiability analysis complete; grid-based Jacobians validate rank structure"
+}

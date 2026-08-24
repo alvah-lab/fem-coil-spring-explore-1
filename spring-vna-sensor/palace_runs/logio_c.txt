@@ -1,0 +1,111 @@
+>> /usr/bin/mpirun -n 10 /work/alvah-labs/fem/fem-2/palace/install/bin/palace-x86_64.bin runio_compressed.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+Git changeset ID: 3b5d465
+Running with 10 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/xsmm/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+One or more external boundary attributes has no associated boundary condition!
+"PMC"/"ZeroCharge" condition is assumed!
+
+Boundary attribute list: 3
+
+
+Characteristic length and time scales:
+ Lc = 2.200e-02 m, tc = 7.338e-02 ns
+Finished partitioning mesh into 10 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-1.100e-02, -1.100e-02, -1.100e-02) m
+ (Xmax, Ymax, Zmax) = (+1.100e-02, +1.100e-02, +1.100e-02) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          8368        9466       10611       94669
+ edges            58163       61543       64794      615431
+ faces            97656       99850      102097      998502
+ elements         47295       47773       47926      477737
+ neighbors            5           7           9
+
+            minimum     maximum
+ h      0.000141969    0.176774
+ kappa            1     1660.48
+
+Estimated current per-rank memory usage is: Min. 47.4M, Max. 228.5M, Avg. 65.8M, Total 657.7M
+Estimated current per-node memory usage is: Min. 659.4M, Max. 659.4M, Avg. 659.4M, Total 659.4M
+
+Configuring Dirichlet BC at attributes:
+ 2-3
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 710100, ND (p = 2): 3227866, RT (p = 2): 4428717
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 94669 unknowns
+ Level 1 (p = 2): 710100 unknowns
+
+Computing electrostatic fields for 1 terminal boundary
+
+It 1/1: Index = 1 (elapsed time = 3.43e-07 s)
+
+PCG solver converged in 10 iterations (avg. reduction factor: 1.561e-01)
+ Sol. ||V|| = 8.192779e+02 (||RHS|| = 4.120800e+02)
+ Field energy E = 5.543e-11 J
+ Updating solution error estimates
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 2.817e-02, global unknowns = 710100
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 649.0M, Max. 657.6M, Avg. 653.0M, Total 6.4G
+Estimated peak per-node memory usage is: Min. 6.4G, Max. 6.4G, Avg. 6.4G, Total 6.4G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   3.059       7.422       6.983
+  Mesh Preprocessing             4.770       9.130       5.206
+Operator Construction            0.966       1.045       1.011
+Linear Solve                     1.056       1.079       1.068
+  Setup                         13.511      13.519      13.514
+  Preconditioner                 9.476       9.503       9.494
+  Coarse Solve                   0.149       0.160       0.153
+Estimation                       0.218       0.336       0.276
+  Construction                  22.807      22.871      22.832
+  Solve                         48.106      48.106      48.106
+Postprocessing                   1.258       1.376       1.319
+Disk IO                          6.155       6.162       6.159
+--------------------------------------------------------------
+Total                          116.735     116.753     116.744
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   15.9M       15.9M       15.9M
+  Mesh Preprocessing            284.1M      284.1M      300.0M
+Operator Construction             1.2G        1.2G        1.5G
+Linear Solve                      0.0K        0.0K        1.5G
+  Setup                           1.6G        1.6G        3.1G
+  Preconditioner                  0.0K        0.0K        3.1G
+  Coarse Solve                    0.0K        0.0K        3.1G
+Estimation                      788.0M      788.0M        3.8G
+  Construction                    1.8G        1.8G        5.6G
+  Solve                         399.9M      399.9M        6.0G
+Postprocessing                    3.6M        3.6M        6.0G
+Disk IO                         162.3M      162.3M        6.1G
+--------------------------------------------------------------
+Total                             6.3G        6.3G        6.3G
+
+c done

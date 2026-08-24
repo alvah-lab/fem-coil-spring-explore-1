@@ -1,0 +1,19 @@
+{
+  "Problem": { "Type": "Electrostatic", "Verbose": 1, "Output": "ppio_compressed" },
+  "Model": { "Mesh": "io_compressed.msh", "L0": 1.0e-3 },
+  "Domains": {
+    "Materials": [ { "Attributes": [1], "Permittivity": 1.0 } ]
+  },
+  "Boundaries": {
+    "Ground": { "Attributes": [2] },
+    "Terminal": [ { "Index": 1, "Attributes": [3] } ],
+    "Postprocessing": {
+      "SurfaceFlux": [ { "Index": 1, "Attributes": [3], "Type": "Electric" } ]
+    }
+  },
+  "Solver": {
+    "Order": 2, "Device": "CPU",
+    "Electrostatic": { "Save": 0 },
+    "Linear": { "Type": "BoomerAMG", "KSPType": "CG", "Tol": 1.0e-8, "MaxIts": 200 }
+  }
+}

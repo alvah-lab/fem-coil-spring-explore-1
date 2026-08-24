@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-07-12T01:00:06.467460",
+  "solver": "Palace Mock v0.1",
+  "num_cases": 121,
+  "frequency_config": {
+    "start_hz": 1000000.0,
+    "end_hz": 1000000000.0,
+    "num_points": 31
+  },
+  "state_grid": {
+    "epsilon": [
+      0.0,
+      0.02,
+      0.04,
+      0.06,
+      0.08,
+      0.1,
+      0.12,
+      0.14,
+      0.16,
+      0.18,
+      0.2
+    ],
+    "kappa": [
+      0.0,
+      2.0,
+      4.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      14.0,
+      16.0,
+      18.0,
+      20.0
+    ]
+  },
+  "statistics": {
+    "inductance_nH": {
+      "min": 0.9144800000000001,
+      "max": 1.0,
+      "mean": 0.9579840000000001
+    },
+    "capacitance_pF": {
+      "min": 5.0,
+      "max": 5.3424,
+      "mean": 5.16442
+    },
+    "srf_MHz": {
+      "min": 2250.7907903905143,
+      "max": 2302.0792810848484,
+      "mean": 2275.46712888433
+    }
+  },
+  "sensitivity": {
+    "compression": {
+      "inductance_pct_change": -8.551999999999992,
+      "frequency_pct_change": 2.2786876022997893
+    },
+    "bending": {
+      "inductance_pct_change": -8.551999999999992,
+      "frequency_pct_change": 2.2786876022997893
+    }
+  },
+  "csv_output_directory": "/work/alvah-labs/fem/fem-2/spring-vna-sensor/data/palace_output"
+}

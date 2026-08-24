@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-07-12T01:00:24.476230",
+  "test_results": {
+    "Full-rank Jacobian Analysis": true,
+    "Blind Inversion (Clean Data)": true,
+    "Geometry Generation": true
+  },
+  "all_pass": true,
+  "jacobian_stats": {
+    "mean_condition_number": 36.01553879151534,
+    "max_condition_number": 39.94344463718734,
+    "rank_2_percentage": 100.0
+  }
+}

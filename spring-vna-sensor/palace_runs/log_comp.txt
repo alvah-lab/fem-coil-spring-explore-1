@@ -1,0 +1,149 @@
+>> /usr/bin/mpirun -n 10 /work/alvah-labs/fem/fem-2/palace/install/bin/palace-x86_64.bin runK_compressed.json
+
+_____________     _______
+_____   __   \____ __   /____ ____________
+____   /_/  /  __ ` /  /  __ ` /  ___/  _ \
+___   _____/  /_/  /  /  /_/  /  /__/  ___/
+  /__/     \___,__/__/\___,__/\_____\_____/
+
+
+[38;2;255;255;000m--> Warning![0m
+Output folder is not empty; program will overwrite content! (ppK_compressed)
+Git changeset ID: 3b5d465
+Running with 10 MPI processes, 1 OpenMP thread
+Device configuration: omp,cpu
+Memory configuration: host-std
+libCEED backend: /cpu/self/xsmm/blocked
+
+
+[38;2;255;255;000m--> Warning![0m
+One or more external boundary attributes has no associated boundary condition!
+"PMC"/"ZeroCharge" condition is assumed!
+
+Boundary attribute list: 11, 14, 13, 12, 10, 15
+
+
+Characteristic length and time scales:
+ Lc = 2.000e-02 m, tc = 6.671e-02 ns
+Finished partitioning mesh into 10 subdomains
+
+Mesh curvature order: 1
+Mesh bounding box:
+ (Xmin, Ymin, Zmin) = (-1.000e-02, -1.000e-02, -1.000e-02) m
+ (Xmax, Ymax, Zmax) = (+1.000e-02, +1.000e-02, +1.000e-02) m
+
+Parallel Mesh Stats:
+
+                minimum     average     maximum       total
+ vertices          2775        3609        4024       36095
+ edges            20730       23449       24815      234494
+ faces            35899       38116       39370      381165
+ elements         17934       18275       18664      182759
+ neighbors            6           7           9
+
+            minimum     maximum
+ h      0.000177126    0.155758
+ kappa            1     3336.32
+
+Estimated current per-rank memory usage is: Min. 36.0M, Max. 105.4M, Avg. 43.2M, Total 432.2M
+Estimated current per-node memory usage is: Min. 433.9M, Max. 433.9M, Avg. 433.9M, Total 433.9M
+
+Configuring Dirichlet BC at attributes:
+ 2, 10-15
+
+Assembling system matrices, number of global unknowns:
+ H1 (p = 2): 270589, ND (p = 2): 1231318, RT (p = 2): 1691772
+ Operator assembly level: Partial
+ Mesh geometries:
+  Tetrahedron: P = 20, Q = 14 (quadrature order = 4)
+
+Assembling multigrid hierarchy:
+ Level 0 (p = 1): 36095 unknowns
+ Level 1 (p = 2): 270589 unknowns
+
+Computing electrostatic fields for 6 terminal boundaries
+
+It 1/6: Index = 1 (elapsed time = 3.18e-07 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.765e-01)
+ Sol. ||V|| = 1.638396e+02 (||RHS|| = 1.037031e+02)
+ Field energy E = 2.408e-10 J
+ Updating solution error estimates
+
+It 2/6: Index = 2 (elapsed time = 1.05e+02 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.687e-01)
+ Sol. ||V|| = 1.425365e+02 (||RHS|| = 9.820389e+01)
+ Field energy E = 4.802e-10 J
+ Updating solution error estimates
+
+It 3/6: Index = 3 (elapsed time = 2.18e+02 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.705e-01)
+ Sol. ||V|| = 1.445495e+02 (||RHS|| = 9.827707e+01)
+ Field energy E = 4.734e-10 J
+ Updating solution error estimates
+
+It 4/6: Index = 4 (elapsed time = 3.35e+02 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.708e-01)
+ Sol. ||V|| = 1.455454e+02 (||RHS|| = 9.826978e+01)
+ Field energy E = 4.685e-10 J
+ Updating solution error estimates
+
+It 5/6: Index = 5 (elapsed time = 4.10e+02 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.651e-01)
+ Sol. ||V|| = 1.458572e+02 (||RHS|| = 9.798826e+01)
+ Field energy E = 4.618e-10 J
+ Updating solution error estimates
+
+It 6/6: Index = 6 (elapsed time = 5.29e+02 s)
+
+PCG solver converged in 11 iterations (avg. reduction factor: 1.810e-01)
+ Sol. ||V|| = 1.729860e+02 (||RHS|| = 1.020345e+02)
+ Field energy E = 2.613e-10 J
+ Updating solution error estimates
+
+Completed 0 iterations of adaptive mesh refinement (AMR):
+ Indicator norm = 2.125e-01, global unknowns = 270589
+ Max. iterations = 0, tol. = 1.000e-02
+
+Estimated peak per-rank memory usage is: Min. 271.7M, Max. 282.8M, Avg. 277.9M, Total 2.7G
+Estimated peak per-node memory usage is: Min. 2.7G, Max. 2.7G, Avg. 2.7G, Total 2.7G
+
+Elapsed Time Report (s)           Min.        Max.        Avg.
+==============================================================
+Initialization                   0.484       1.339       1.252
+  Mesh Preprocessing             1.391       2.244       1.476
+Operator Construction            0.655       0.744       0.707
+Linear Solve                     2.666       2.712       2.679
+  Setup                          2.893       2.900       2.896
+  Preconditioner                23.993      24.045      24.025
+  Coarse Solve                   0.282       0.304       0.291
+Estimation                       0.312       0.389       0.350
+  Construction                  15.079      15.104      15.089
+  Solve                        618.443     618.448     618.447
+Postprocessing                   0.688       0.703       0.696
+Disk IO                          1.955       1.964       1.961
+--------------------------------------------------------------
+Total                          670.497     670.521     670.510
+
+Peak Memory                   Per-Node       Total   Total HWM
+==============================================================
+Initialization                   16.0M       16.0M       16.0M
+  Mesh Preprocessing            116.8M      116.8M      132.8M
+Operator Construction           512.7M      512.7M      645.5M
+Linear Solve                      0.0K        0.0K      645.5M
+  Setup                         648.6M      648.6M        1.3G
+  Preconditioner                  0.0K        0.0K        1.3G
+  Coarse Solve                    0.0K        0.0K        1.3G
+Estimation                      301.1M      301.1M        1.6G
+  Construction                  790.2M      790.2M        2.3G
+  Solve                          91.3M       91.3M        2.4G
+Postprocessing                    1.6M        1.6M        2.4G
+Disk IO                          63.2M       63.2M        2.5G
+--------------------------------------------------------------
+Total                             2.6G        2.6G        2.6G
+
+compressed exit=0

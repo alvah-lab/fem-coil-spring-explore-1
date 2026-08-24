@@ -1,0 +1,35 @@
+{
+  "design_name": "弹簧线圈 3mm×6mm",
+  "geometry": {
+    "outer_diameter_mm": 3.0,
+    "height_uncompressed_mm": 6.0,
+    "height_compressed_mm": 4.0,
+    "compression_strain_percent": 33.33333333333333,
+    "wire_diameter_mm": 0.2,
+    "pitch_mm": 0.25,
+    "gap_um": 50.0,
+    "number_of_turns": 24
+  },
+  "electromagnetic": {
+    "inductance_uncompressed_nH": 733.0090145450891,
+    "inductance_compressed_nH": 1099.5135218176338,
+    "inductance_change_percent": 49.99999999999999,
+    "capacitance_pF": 19193.00633486998,
+    "SRF_uncompressed_GHz": 0.0013418191030772637,
+    "SRF_compressed_GHz": 0.0010955907098860937
+  },
+  "electrical": {
+    "DC_resistance_ohm": 0.4,
+    "impedance_1MHz_uncompressed_ohm": 4.622968877191349,
+    "impedance_1MHz_compressed_ohm": 6.920017542523259,
+    "S11_mag_1MHz_uncompressed": 0.8307316877050329,
+    "S11_mag_1MHz_compressed": 0.7568511802599667,
+    "S11_dB_1MHz_uncompressed": -1.6107844669208689,
+    "S11_dB_1MHz_compressed": -2.419790149648141
+  },
+  "material": {
+    "name": "7%磷青铜",
+    "conductivity_S_per_m": 18000000.0,
+    "density_kg_per_m3": 8800.0
+  }
+}

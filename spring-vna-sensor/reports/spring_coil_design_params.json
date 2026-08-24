@@ -1,0 +1,31 @@
+{
+  "coil_design": {
+    "outer_diameter_mm": 3.0,
+    "height_uncompressed_mm": 6.0,
+    "height_compressed_mm": 4.0,
+    "compression_strain_percent": 33.33333333333333,
+    "wire_diameter_mm": 0.2,
+    "number_of_turns": 30,
+    "pitch_mm": 0.2,
+    "total_wire_length_mm": 282.7433388230814,
+    "material": "磷青铜(7%)"
+  },
+  "electromagnetic_properties": {
+    "inductance_uncompressed_nH": 1332.396594147063,
+    "inductance_compressed_nH": 1998.5948912205945,
+    "capacitance_uncompressed_pF": 12099.81268937455,
+    "capacitance_compressed_pF": 12099.81268937455,
+    "SRF_uncompressed_GHz": 0.0012534703083900724,
+    "SRF_compressed_GHz": 0.0010234542210949167
+  },
+  "electrical_properties": {
+    "DC_resistance_ohm": 0.5,
+    "conductivity_S_per_m": 18000000.0,
+    "resistivity_ohm_m": 5.5555555555555555e-08
+  },
+  "mechanical_properties": {
+    "density_kg_per_m3": 8800,
+    "youngs_modulus_GPa": 110.0,
+    "mass_mg": 0.07816726685662773
+  }
+}

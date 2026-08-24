@@ -1,0 +1,64 @@
+{
+  "timestamp": "2026-07-12T00:54:56.321569",
+  "data_source": "Palace Mock M2",
+  "analysis_type": "Full Identifiability with EM Data",
+  "state_grid": {
+    "epsilon": [
+      0.0,
+      0.02,
+      0.04,
+      0.06,
+      0.08,
+      0.1,
+      0.12,
+      0.14,
+      0.16,
+      0.18,
+      0.2
+    ],
+    "eta": [
+      0.0,
+      0.001,
+      0.002,
+      0.003,
+      0.004,
+      0.005,
+      0.006,
+      0.007,
+      0.008,
+      0.009000000000000001,
+      0.01
+    ]
+  },
+  "jacobian_analysis": {
+    "rank_2_coverage_pct": 0.0,
+    "rank_2_count": 0,
+    "total_points": 121
+  },
+  "condition_numbers": {
+    "mean": 0.0,
+    "max": 0.0,
+    "min": 0.0,
+    "all_below_100": true
+  },
+  "singular_values": {
+    "min_mean": 0.0,
+    "min_min": 0.0,
+    "min_max": 0.0
+  },
+  "global_uniqueness": {
+    "min_mahalanobis_distance": 0.0,
+    "confusing_pairs": 7249
+  },
+  "comparison_with_m0": {
+    "m0_cond_max": 36.0,
+    "m2_m3_cond_max": 0.0,
+    "cond_difference_pct": 100.0,
+    "m0_rank2_pct": 100.0,
+    "m2_m3_rank2_pct": 0.0
+  },
+  "conclusion": {
+    "identifiable": false,
+    "summary": "Identifiability DEGRADED"
+  }
+}
