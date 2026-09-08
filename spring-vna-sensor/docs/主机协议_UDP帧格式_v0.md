@@ -27,8 +27,8 @@ byte 8-11 data     u32 (REG_WRITE)
 |---|---|---|
 | 0x00 | DEVICE_ID | R |
 | 0x04/0x08/0x10/0x14 | CTRL / STATUS / BULK_ADDR / BULK_DATA | 沿用 adda_project |
-| **0x20** | DWELL_NSAMP | 每驻留积分样本数。**必须是公共周期的整数倍**：fs=62.5MSps、f0=8MHz 时 125 样本 = 16 周期，默认 **12500 = 200µs = 1600 周期**；若 ADC 改 65MSps 则 13000 |
-| 0x24 | NCO_FREQ_WORD | u32，f0 = word/2³²·fs。默认 8MHz@62.5M = 0x20C49BA6；备选 f0 = fs/8 = 7.8125MHz（每周期恰 8 样本，NCO 退化为 8 点表） |
+| **0x20** | DWELL_NSAMP | 每驻留积分样本数。**必须是载波周期的整数倍**：f0 = fs/8 = 7.8125MHz 时每周期 8 样本，默认 **12496 = 1562 周期 = 199.9µs**（12500 不是 8 的倍数，不可用）；若 f0 取 8MHz@62.5M 则 125 样本 = 16 周期，取 12500 |
+| 0x24 | NCO_FREQ_WORD | u32，f0 = word/2³²·fs。**默认 f0 = fs/8 = 7.8125MHz = 0x20000000**：每周期恰 8 样本，NCO 退化为 8 点 cos/sin 表 (1, √2/2, 0, −√2/2…)，无相位累加误差；备选 8MHz = 0x20C49BA6 |
 | 0x28 | NCO_PHASE | 起始相位（沿用 `adda_project/top.v` 的 trig_armed 绝对相位参考：驻留首样本对齐 DAC sin(0)） |
 | 0x2C | FRAME_CTRL | 0 停 / 1 连续 / 2 单帧 |
 | 0x30 | DWELL_TABLE_ADDR | 驻留表写地址 (0..127) |
@@ -70,7 +70,8 @@ I_acc = Σ v[n]·cos(2π·k·n/N),  Q_acc = Σ v[n]·sin(2π·k·n/N),  k = N·f
 
 ## 5. 时序约定
 
-- 驻留周期严格固定（驻留切换梳齿落在 5kHz 整数倍，振动通道靠固定陷波）。
+- 载波 7.8125MHz 下相关判决数不变（反射 nH 与频率无关；环 Q 43，1/Q² 项 5e-4 可忽略；C_off 干扰按 ω² 略降 5%）。
+- 驻留周期严格固定（驻留切换梳齿落在 ~5kHz 整数倍，振动通道靠固定陷波）。
 - 每驻留：写 A704 驻留字 → 等 READY → 等保护时间 → 积分 DWELL_NSAMP 样本。
 - 帧率 = 1/(N_DWELL × (DWELL_NSAMP/fs + 开关时间)) ≈ 77Hz。
 

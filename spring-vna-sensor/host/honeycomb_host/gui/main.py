@@ -21,6 +21,7 @@ from .hexmap import HexMap
 from .obsview import ObsView
 from .diag import DiagView
 from .scene_panel import ScenePanel
+from .view3d import View3D
 
 pg.setConfigOptions(antialias=False, background='w', foreground='k')
 
@@ -39,10 +40,15 @@ class MainWindow(QMainWindow):
         # 部件
         self.hexmap = HexMap(); self.setCentralWidget(self.hexmap)
         self.obs = ObsView(); self.diag = DiagView(); self.scene_panel = ScenePanel(lambda: self.source)
+        self.view3d = View3D(); self.view3d.gap = self.env.gap
+        docks = {}
         for name, w, area in (('观测', self.obs, Qt.DockWidgetArea.RightDockWidgetArea),
+                              ('3D 场形变', self.view3d, Qt.DockWidgetArea.RightDockWidgetArea),
                               ('诊断', self.diag, Qt.DockWidgetArea.BottomDockWidgetArea),
                               ('孪生场景', self.scene_panel, Qt.DockWidgetArea.LeftDockWidgetArea)):
-            d = QDockWidget(name); d.setWidget(w); self.addDockWidget(area, d)
+            d = QDockWidget(name); d.setWidget(w); self.addDockWidget(area, d); docks[name] = d
+        self.tabifyDockWidget(docks['观测'], docks['3D 场形变'])     # 右侧标签页: 观测 / 3D
+        docks['观测'].raise_()
         self.hexmap.unit_clicked.connect(self.obs.set_unit)
         # 工具栏
         tb = QToolBar(); self.addToolBar(tb)
@@ -98,6 +104,8 @@ class MainWindow(QMainWindow):
             return
         self.latest = None
         self.hexmap.update_result(res); self.obs.update_result(res)
+        if self.view3d.isVisible():
+            self.view3d.update_result(res)
         self.diag.update_result(res, f'队列丢弃 {self.worker.n_dropped}  录制 {len(self.recorder.frames)} 帧')
     def closeEvent(self, ev):
         self.stop_source(); self.worker.stop(); super().closeEvent(ev)
@@ -119,7 +127,10 @@ def main(argv=None):
     win.show()
     if a.screenshot:
         def shot():
-            win.grab().save(a.screenshot); print('screenshot', a.screenshot, 'frames', win.pipeline._last_seq); app.quit()
+            win.grab().save(a.screenshot)
+            if win.view3d.gl_ok:
+                win.view3d.view.grabFramebuffer().save(a.screenshot.replace('.png', '_3d.png'))
+            print('screenshot', a.screenshot, 'frames', win.pipeline._last_seq, 'gl', win.view3d.gl_ok); app.quit()
         QTimer.singleShot(int(a.seconds * 1000), shot)
     return app.exec()
 

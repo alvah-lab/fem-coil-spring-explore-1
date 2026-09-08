@@ -51,7 +51,7 @@ class RingSpec:
 
 @dataclass(frozen=True)
 class ModelConfig:
-    f0: float = 8e6
+    f0: float = 62.5e6 / 8            # 7.8125 MHz = fs/8, 每周期恰 8 样本
     gap: float = G.GAP_NOM               # 标称环质心→L1 (pose dz 相对此值)
     table_h: float = 0.02                # 表步长 mm
     rho_max: float = 27.0

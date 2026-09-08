@@ -16,7 +16,7 @@ def test_frame_decode_roundtrip():
     env = Environment(noise=NoiseModel(preset='off'))
     tw = Twin(env=env, scene=Scenes.point_press(ramp_s=0))
     fr = tw.step()
-    assert fr.dwells.shape == (63,) and fr.dwell_nsamp == 12500
+    assert fr.dwells.shape == (63,) and fr.dwell_nsamp == 12496
     V, I = decode_dwells(fr.dwells, env.dwell_nsamp - env.link.blank_nsamp)
     gp = np.array(env.link.pga_gains)[(fr.dwells['dwell_word'] >> 4) & 3]
     Z = V[:61] / gp[:61] / (I[:61] / env.link.isense_V_per_A)

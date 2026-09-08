@@ -60,9 +60,9 @@ class LinkModel:
 
 @dataclass
 class Environment:
-    f0: float = 8e6
+    f0: float = 62.5e6 / 8               # 7.8125 MHz = fs/8: 每周期恰 8 样本, NCO 退化为 8 点表
     fs: float = 62.5e6
-    dwell_nsamp: int = 12500             # = 1600 个 8MHz 周期 (k 整数)
+    dwell_nsamp: int = 12496             # = 1562 个载波周期 (8 的整数倍), 199.9µs
     i_drive_A: float = 10e-3
     gap: float = G.GAP_REST              # 静息环质心→L1
     dT_ring_K: np.ndarray = field(default_factory=lambda: np.zeros(G.NU))
