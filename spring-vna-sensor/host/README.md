@@ -3,11 +3,13 @@
 硬件回来前用数字孪生跑通 **仿真器 → UDP → 主机解析 → 标定 → 反演 → GUI** 全流程；硬件到手后只换数据源。
 
 ```
-source ../../venv/bin/activate        # 需 numpy scipy PyQt6 pyqtgraph pytest
-python scripts/run_sim.py             # 进程内孪生 + GUI
-python scripts/run_sim.py --udp       # sim_device 子进程 + GUI 走 UDP 回环
-python -m pytest -q                   # 全部测试 (~3 分钟, 含 Neumann 对照与闭环 MC)
+./run_gui.sh                          # 进程内孪生 + GUI (SCENE=sweep NOISE=off 等环境变量可选)
+./run_gui.sh udp                      # 仿真 FPGA 子进程 + GUI 走 UDP 回环
+./run_gui.sh board                    # 真实板子 192.168.2.128:5000
+./run_gui.sh replay rec.npz           # 回放录制
+source ../../venv/bin/activate && python -m pytest -q     # 31 项测试 ~40s
 ```
+GUI 操作：左侧"孪生场景"面板拖施力点/压深/剪切/接触温度后立即生效（无需点按钮；"应用预置"用于切换预置场景）；中央蜂窝图点击单元可看其时序；右侧标签页切换"观测"与"3D 场形变"（鼠标拖动旋转、滚轮缩放）；工具栏"录制/保存录制"出 npz。
 
 | 模块 | 作用 |
 |---|---|
