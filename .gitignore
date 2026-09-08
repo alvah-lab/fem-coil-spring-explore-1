@@ -16,3 +16,7 @@ b.mat
 
 # FastHenry2: 独立 git 克隆 (FastFieldSolvers/FastHenry2), 本地已编译 bin/fasthenry
 FastHenry2/
+
+# 交接 zip 可由 docs/ 内容重新打包; 罗杰斯 15MB 选材指南留本地 (docs/材料TDS/ 只入库 ZY9090 TDS)
+spring-vna-sensor/docs/*.zip
+spring-vna-sensor/docs/材料TDS/BISCO_选材指南_CN_0224.pdf

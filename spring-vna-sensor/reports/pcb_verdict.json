@@ -1,0 +1,14 @@
+{
+ "stagger_mm": 0.73,
+ "freq_MHz": 8.0,
+ "n_units": 19,
+ "refl_self_range": [
+  150.37852486123393,
+  362.93653696212095
+ ],
+ "rank_noprior": 61,
+ "n_gauge": 1,
+ "cond_gauge_fixed": 398.39307004413786,
+ "res_w_um": 0.7105434469778481,
+ "res_uv_um": 0.8960867595537423
+}
