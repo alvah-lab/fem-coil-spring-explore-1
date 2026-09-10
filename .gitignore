@@ -24,3 +24,4 @@ spring-vna-sensor/docs/材料TDS/BISCO_选材指南_CN_0224.pdf
 # honeycomb_host 快速正演表缓存 (首次运行 ~4s 自动重建)
 spring-vna-sensor/host/honeycomb_host/data/fastmodel_*
 spring-vna-sensor/host/.pytest_cache/
+spring-vna-sensor/reports/patent_E1/*.step
