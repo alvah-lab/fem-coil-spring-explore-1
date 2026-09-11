@@ -22,7 +22,7 @@ PITCH = 5.2
 R_RING_O, R_RING_I, T_RING = 2.5, 1.5, 0.2
 COIL_TURNS, COIL_W, COIL_R_OUT = 5, 0.22, 2.4          # 示意 5 匝 (真实 11.7 匝, 线图不可辨)
 T_CU = 0.06
-Z_NOM, Z_SUNK = 0.0, -0.73
+Z_NOM, Z_SUNK = 0.0, -0.72          # K18 叠层: L1 0 / L2 -0.236 / L3 -0.719 / L4 -0.955 (铜质心)
 GAP = 2.53                                              # 环底面到 L1 (静息)
 T_FOAM, T_SKIN = 2.38, 0.3
 PCB_T = 1.0
@@ -173,7 +173,7 @@ def fig9_section():
         shapes.append(ring_solid(XY[i, 0], XY[i, 1], GAP, dz=dz, tay=tay))
         shapes += island_solids(XY[i, 0], XY[i, 1], GAP, dz=dz, tay=tay, post_angles=(0, 180))   # 支柱在剖面内
     # 加两条铜层示意线 (L2 与 L4 层深处的薄片), 让剖面能看出四层
-    for zl in (-0.10, -0.83):
+    for zl in (-0.236, -0.955):
         shapes.append(cq.Workplane('XY').rect(16, 10).extrude(0.02).translate((cx, 0, zl)).val())
     comp = Compound.makeCompound(shapes)
     # 切掉 y<0 半, 露出剖面 (相机在 -y 侧看向 +y)

@@ -37,12 +37,15 @@ OBS = [('self', i, i) for i in range(NU)] + [('edge', i, j) for i, j in EDGES]  
 NOBS = len(OBS)
 EDGE_IDX = np.array(EDGES)                        # (42,2)
 
-# ---- 层高 (相对 L1 顶层铜, 向下为负). 环质心在 +GAP ----
-# 叠层 L1 0.1 L2 0.6 L3 0.1 L4 → 标称 L1/L2 = 0/-0.10, 下沉 L3/L4 = -0.73/-0.83 (冻结层深差 0.73)
-LAYER_Z_NOMINAL = (0.0, -0.10)
-LAYER_Z_SUNK = (-0.73, -0.83)
+# ---- 层高 (相对 L1 铜层质心, 向下为负). 环质心在 +GAP ----
+# 投板叠层 K18 (JLC04101H-7628, 2026-09-11 投板): Cu 0.035 / PP 0.2104 / Cu 0.035 / 芯 0.465 / Cu 0.035 / PP 0.2104 / Cu 0.035, 总 1.026
+# 外层 1oz, 内层 0.5oz (L2/L3 铜厚 0.0175). 各层铜质心 (相对 L1 质心):
+#   L1 0 ; L2 -(0.0175+0.2104+0.00875) = -0.236 ; L3 -(0.0175+0.2104+0.0175+0.465+0.00875) = -0.719 ; L4 -(...+0.00875+0.2104+0.0175) = -0.955
+# 标称线圈 L1+L2 质心均值 -0.118, 下沉线圈 L3+L4 均值 -0.837 → 层深差 0.719 (冻结口径 0.73)
+LAYER_Z_NOMINAL = (0.0, -0.236)
+LAYER_Z_SUNK = (-0.719, -0.955)
 COIL_Z0 = np.where(SUNK, LAYER_Z_SUNK[0], LAYER_Z_NOMINAL[0])   # 每单元顶层铜 z
-COIL_DZ = -0.10                                                  # 第二层相对顶层
+COIL_DZ = np.where(SUNK, LAYER_Z_SUNK[1] - LAYER_Z_SUNK[0], LAYER_Z_NOMINAL[1] - LAYER_Z_NOMINAL[0])  # 第二层相对顶层 (每单元)
 GAP_NOM = 1.75      # 判决点 (环质心→L1)
 GAP_REST = 2.53     # BF-1000 2.38mm 静息
 GAP_MIN = 1.35      # 45% 压缩

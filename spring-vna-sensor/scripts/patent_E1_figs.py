@@ -18,7 +18,7 @@ OUT = os.path.join(ROOT, 'reports', 'patent_E1')
 LAYOUT = json.load(open(os.path.join(ROOT, 'host', 'honeycomb_host', 'data', 'layout.json')))
 XY = np.array([[u['x_mm'], u['y_mm']] for u in LAYOUT]); SUNK = np.array([u['sunk'] for u in LAYOUT])
 PITCH = 5.2
-Z_NOM, Z_SUNK, GAP, PCB_T, T_RING, R_ISL, T_ISL = 0.0, -0.73, 2.53, 1.0, 0.2, 3.1, 0.35
+Z_NOM, Z_SUNK, GAP, PCB_T, T_RING, R_ISL, T_ISL = 0.0, -0.72, 2.53, 1.0, 0.2, 3.1, 0.35
 LW = 1.1
 
 def unit_at(x, y):
@@ -135,7 +135,7 @@ def fig3():
     leader(ax, v.px((xl, y, GAP + T_RING / 2)), '11', off=(40, -110))
     leader(ax, v.px((xl + 2.6, y, GAP - T_ISL / 2)), '4', off=(110, -70))
     leader(ax, v.px((xl - (R_ISL - 0.6) - 0.45, y, GAP / 2)), '5', off=(-110, 0))
-    for zl, name in ((-0.05, 'L1/L2'), (-0.78, 'L3/L4')):
+    for zl, name in ((-0.12, 'L1/L2'), (-0.84, 'L3/L4')):
         px = v.px((xl - 8, y, zl)); ax.text(px[0] - 10, px[1], name, fontsize=11, ha='right', va='center')
     # 空气间隙 g: L1 顶 → 环底 (左单元, 静息)
     xg = xl + 3.9

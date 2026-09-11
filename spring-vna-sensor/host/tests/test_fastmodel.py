@@ -5,9 +5,9 @@ from honeycomb_host.fastmodel import FastModel, ModelConfig, obs_of
 def test_nominal_scale(model):
     refl = model.observe_L(np.zeros((G.NU, 5))) - model.carrier_L()
     nom, sunk = refl[:G.NU][~G.SUNK], refl[:G.NU][G.SUNK]
-    assert -66 < nom.mean() < -52 and np.ptp(nom) < 0.5      # Neumann 口径 62nH (L2 在 -0.1 → 略小)
-    assert -25 < sunk.mean() < -18 and np.ptp(sunk) < 0.5
-    assert 0.8 < refl[G.NU:].min() and refl[G.NU:].max() < 4.0   # 边反射 1.2~3.7 nH 量级
+    assert -60 < nom.mean() < -46 and np.ptp(nom) < 0.5      # K18 叠层 (L2 -0.236): 53nH; Neumann 口径 (L2 +0.1) 62nH
+    assert -24 < sunk.mean() < -16 and np.ptp(sunk) < 0.5
+    assert 0.5 < refl[G.NU:].min() and refl[G.NU:].max() < 4.0   # 边反射 0.75~2.7 nH 量级
     car = model.carrier_L()
     assert 1050 < car[:G.NU].mean() < 1170                        # 载波 ≈ L_self 1.11µH
 

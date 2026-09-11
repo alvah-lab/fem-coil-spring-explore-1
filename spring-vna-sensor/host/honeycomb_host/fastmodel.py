@@ -25,9 +25,9 @@ class CoilSpec:
     r_out: float = 2.5 - 0.089 / 2
     r_in: float = 0.37
     pitch: float = 0.178
-    layer_dz: float = G.COIL_DZ          # 第二层相对顶层 (-0.10)
+    layer_dz: float = -0.236             # 第二层相对顶层 (K18 叠层: 标称 -0.236 / 下沉 -0.236; 见 geometry.COIL_DZ)
     L_self: float = 1.11e-6              # spiral_geom --check (Neumann) 值
-    R: float = 1.2                       # Ω @8MHz
+    R: float = 1.8                       # Ω @7.8MHz: 外层 1oz 0.6Ω + 内层 0.5oz 1.2Ω (标称/下沉相同)
     def loops(self) -> np.ndarray:
         """(n,3): r, dz, weight — 整匝权重 1, 末匝按分数匝."""
         turns = (self.r_out - self.r_in) / self.pitch

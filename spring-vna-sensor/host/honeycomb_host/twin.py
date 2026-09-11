@@ -68,6 +68,7 @@ class Environment:
     dT_ring_K: np.ndarray = field(default_factory=lambda: np.zeros(G.NU))
     dT_coil_K: np.ndarray = field(default_factory=lambda: np.zeros(G.NU))
     alpha_cu: float = 3.9e-3
+    r_on_ohm: float = 3.0                # 自观测非 Kelvin: 开关 Ron 落在实部 (AFE_ARCH v0 §7)
     c_off_F: np.ndarray = field(default_factory=lambda: np.full(G.NU, 125e-15))
     coff_enable: bool = True
     noise: NoiseModel = field(default_factory=NoiseModel)
@@ -167,7 +168,7 @@ class Twin:
         self.link_gain = complex(self.env.link.gain0)
         self.link_gain_i = complex(self.env.link.gain0)
         self.w = 2 * np.pi * self.env.f0
-        self.V_ref0 = 0.3 + 0j                       # 参考驻留幅度 (V, 无 PGA)
+        self.V_ref0 = 0.02 + 0j                      # 参考驻留: F 总线 ÷100 注入 S 总线 (~20mV @30mA, 无 PGA)
         self.I_ref0 = self.env.i_drive_A
         self.carrier_Z = self.model.carrier_Z()
         self.sig_nH = self.sigma_model()
@@ -185,6 +186,7 @@ class Twin:
         Rr = self.model.ring.R * (1 + env.alpha_cu * (env.dT_ring_K if dT_ring is None else dT_ring))
         Rc = self.model.coil.R * (1 + env.alpha_cu * (env.dT_coil_K if dT_coil is None else dT_coil))
         Z = self.model.fold(*self.model.blocks(poses), Rr, Rc)
+        Z = Z + np.diag(np.full(G.NU, env.r_on_ohm))      # 开关 Ron 只进自观测实部
         z = obs_of(Z)
         zc = self.coff_fold(Z) if env.coff_enable else z
         return z, zc, poses, clamped
