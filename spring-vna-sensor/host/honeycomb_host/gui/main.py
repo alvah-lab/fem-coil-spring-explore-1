@@ -57,10 +57,13 @@ class MainWindow(QMainWindow):
         self.btn_rec = QPushButton('录制'); self.btn_rec.setCheckable(True); tb.addWidget(self.btn_rec)
         self.btn_save = QPushButton('保存录制…'); tb.addWidget(self.btn_save)
         self.btn_reset = QPushButton('复位跟踪'); tb.addWidget(self.btn_reset)
+        self.btn_rf = QPushButton('RF 使能'); self.btn_rf.setCheckable(True); tb.addWidget(self.btn_rf)
+        self.btn_rf.setToolTip('写固件 RF_EN → A704 PA_RUN (仅 udp 数据源有效)')
         self.btn_start.clicked.connect(lambda: self.start_source(self.src_combo.currentText()))
         self.btn_stop.clicked.connect(self.stop_source)
         self.btn_rec.toggled.connect(self._toggle_rec); self.btn_save.clicked.connect(self._save_rec)
         self.btn_reset.clicked.connect(lambda: self.pipeline.tracker.reset())
+        self.btn_rf.toggled.connect(self._toggle_rf)
         self.setStatusBar(QStatusBar())
         # 刷新
         self.timer = QTimer(self); self.timer.timeout.connect(self._redraw); self.timer.start(33)
@@ -88,6 +91,10 @@ class MainWindow(QMainWindow):
     def stop_source(self):
         if self.source is not None:
             self.source.stop(); self.source = None
+    def _toggle_rf(self, on):
+        if self.source is not None:
+            self.source.send_command(P.Command('RF_EN', 1 if on else 0))
+            self.statusBar().showMessage(f'RF_EN={int(on)}', 3000)
     def _toggle_rec(self, on):
         self.worker.recorder = self.recorder if on else None
         if on:

@@ -19,6 +19,8 @@ DWELL_DTYPE = np.dtype([('obs_id', 'u1'), ('dwell_word', 'u2'), ('flags', 'u1'),
 FLAG_SAT = 0x01          # ADC 饱和
 FLAG_REF = 0x02          # 参考驻留
 FLAG_ISENSE = 0x04       # 电流标定驻留
+FLAG_LINK_TIMEOUT = 0x08 # 固件: 等 A704 READY 超时 (v0.1)
+FLAG_LINK_FAULT = 0x10   # 固件: A704 FAULT (v0.1)
 OBS_REF, OBS_ISENSE = 61, 62
 N_DWELL = 63
 ADC_FS_V = 5.0
@@ -275,14 +277,26 @@ class Twin:
             v = v + self.rng.standard_normal(v.shape) * self.env.noise.adc_sigma_V
         return np.clip(np.rint(v / LSB), -2048, 2047).astype(np.int16)
 
-    def nco_accumulate(self, samples: np.ndarray, blank: int = 0) -> tuple[np.ndarray, np.ndarray]:
-        """FPGA 等价: 消隐前 blank 个样本, 累加 Σ v cos, Σ v sin."""
+    def nco_accumulate(self, samples: np.ndarray, blank: int = 0, coef_q: int | None = None) -> tuple[np.ndarray, np.ndarray]:
+        """FPGA 等价: 消隐前 blank 个样本, 累加 Σ v cos, Σ v sin.
+
+        coef_q=14: 与固件 iq_acc 逐位一致 — 系数取 round(cos·2^14) (f0=fs/8 时为 {16384, 11585, 0}),
+        整数累加后 (acc + 2^13) >> 14 (向下取整的舍入), 饱和到 int32。"""
         N = samples.shape[1]
         k = self.env.f0 / self.env.fs
         t = np.arange(N)
-        c = np.cos(2 * np.pi * k * t); s = np.sin(2 * np.pi * k * t)
+        if coef_q is None:
+            c = np.cos(2 * np.pi * k * t); s = np.sin(2 * np.pi * k * t)
+            c[:blank] = 0; s[:blank] = 0
+            return samples @ c, samples @ s
+        sc = 1 << coef_q
+        c = np.rint(np.cos(2 * np.pi * k * t) * sc).astype(np.int64)
+        s = np.rint(np.sin(2 * np.pi * k * t) * sc).astype(np.int64)
         c[:blank] = 0; s[:blank] = 0
-        return samples @ c, samples @ s
+        v = samples.astype(np.int64)
+        I = (v @ c + (sc >> 1)) >> coef_q
+        Q = (v @ s + (sc >> 1)) >> coef_q
+        return np.clip(I, -2**31, 2**31 - 1), np.clip(Q, -2**31, 2**31 - 1)
 
 def decode_dwells(d: np.ndarray, n_eff: int) -> tuple[np.ndarray, np.ndarray]:
     """累加值 → 复幅度 V, I (伏). V = (I − jQ)·2·LSB/N_eff."""

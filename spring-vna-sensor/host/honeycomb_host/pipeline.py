@@ -87,7 +87,9 @@ class Pipeline:
         tr = self.tracker.update(L) if self.tracker is not None else None
         gap = 0
         if self._last_seq is not None:
-            gap = max(0, fr.seq - self._last_seq - 1)
+            gap = (fr.seq - self._last_seq - 1) & 0xFFFF      # u16 回绕
+            if gap > 0x7FFF:
+                gap = 0
         self._last_seq = fr.seq
         if wall_t is not None:
             if self._t_last is not None and wall_t > self._t_last:

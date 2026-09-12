@@ -61,21 +61,34 @@ class TwinSource(DataSource):
                     nxt = time.perf_counter()
 
 class UdpSource(DataSource):
-    def __init__(self, listen=('0.0.0.0', P.DATA_PORT), device=(P.FPGA_IP, P.FPGA_PORT), parent=None):
+    """真板/sim_device 数据源. autostart: 启动时 identify → 写 HOST_PORT → FRAME_CTRL=RUN, 停止时 FRAME_CTRL=STOP
+    (固件 v0.1 上电默认 STOP, 需主机启动)."""
+    def __init__(self, listen=('0.0.0.0', P.DATA_PORT), device=(P.FPGA_IP, P.FPGA_PORT), autostart=True, parent=None):
         super().__init__(parent)
-        self.listen = listen; self.device = device
+        self.listen = listen; self.device = device; self.autostart = autostart
         self.cmd_seq = 0
         self.n_bad = 0
+        self.n_noack = 0
         self.sock = None
-    def send_command(self, cmd: P.Command):
+    def send_command(self, cmd: P.Command) -> bool:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.2)
+        ok = True
         for pk in cmd.to_packets(self.cmd_seq):
             s.sendto(pk, self.device); self.cmd_seq += 1
             try:
                 s.recvfrom(64)
             except socket.timeout:
-                self.status.emit(f'cmd {cmd.name}: no ack')
+                ok = False; self.n_noack += 1
+                self.status.emit(f'cmd {cmd.name}: no ack from {self.device}')
         s.close()
+        return ok
+    def stop(self):
+        if self.autostart and self.sock is not None:
+            try:
+                self.send_command(P.Command('stop'))
+            except OSError:
+                pass
+        super().stop()
     def run(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.sock.settimeout(0.1)
@@ -84,6 +97,11 @@ class UdpSource(DataSource):
         except OSError as e:
             self.status.emit(f'bind failed: {e}'); return
         self.status.emit(f'listening {self.listen}')
+        if self.autostart:
+            if self.send_command(P.Command('identify')):
+                self.send_command(P.Command('HOST_PORT', data=self.listen[1]))
+                self.send_command(P.Command('start'))
+                self.status.emit(f'device {self.device}: identify ok, FRAME_CTRL=RUN')
         while not self._stop.is_set():
             try:
                 b, _ = self.sock.recvfrom(65535)

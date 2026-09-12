@@ -92,3 +92,23 @@ python -m honeycomb_host.sim_device --scene point_press        # 仿真 FPGA (12
 python -m honeycomb_host.gui.main --source udp --device 127.0.0.1:5000
 ```
 固件实现后把 `--device 192.168.2.128:5000` 即可，主机不改。
+
+## 8. v0.1 增补（2026-09-12，固件实现同步）
+
+固件实现在板仓库 `prototype-track3-1` 分支 `fw/track3-v0` 的 `firmware/`；两板链路与驻留字语义见其 `docs/LINK_PROTOCOL_v0.md`。本节是对 v0 的增量，帧格式不变。
+
+| 地址 | 名 | R/W | 说明 |
+|---|---|---|---|
+| 0x60 | RF_EN | RW | bit0 → 驻留字 rf_en → A704 PA_RUN。**上电默认 0**，GUI 工具栏 "RF 使能" 按钮写它 |
+| 0x64 | BLANK_NSAMP | RW | 积分前置零样本数，默认 312（= `LinkModel.blank_nsamp`，主机不从帧里读） |
+| 0x68 | LINK_STATUS | R | [0] READY 当前 [1] FAULT 当前 [15:8] READY 超时计数 [23:16] FAULT 计数 |
+| 0x6C | ERR_CNT | R | [7:0] 帧发送被阻塞丢弃数 [15:8] 上一帧 ADC 饱和驻留数 |
+| 0x70 | FW_ID | R | 0x5433_0001 |
+
+- `flags` 新增 bit3 = LINK_TIMEOUT（等 READY 超过 1 ms，数据不可信）、bit4 = LINK_FAULT（A704 报非法字）。
+- `DWELL_TABLE_DATA` 写后 `DWELL_TABLE_ADDR` 自增；`sim_device` 同步了该语义。默认表（63 条）已固化在固件里，上电即有。
+- `NCO_FREQ_WORD`/`NCO_PHASE` 在 v0.1 固件中只读（f0 = fs/8 固定）。`DRIVE_AMP` [13:0] ≤ 8191（DAC 满幅 8192±8191）；`NULL_I/Q` int16 → DAC2（调零，v1 用）。
+- 上电 `FRAME_CTRL = STOP`：`UdpSource(autostart=True)` 连接时 identify → 写 HOST_PORT → RUN，停止时写 STOP；固件 STOP 时给 A704 发全断字（PA 关）。
+- `CTRL` 0x04: bit0 软复位序列器（脉冲），bit1 = ADC 码为偏移二进制（默认 0 = 二进制补码，AN9238 实测后定）。
+- 固件累加系数为 Q14 定点（`twin.nco_accumulate(coef_q=14)` 为逐位参考），与浮点参考差 ≤ 2 LSB 累加值。
+- 序号 `seq` u16 回绕不计丢帧。

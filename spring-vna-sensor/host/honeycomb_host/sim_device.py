@@ -46,6 +46,7 @@ class SimDevice:
             elif reg == P.REG['DWELL_TABLE_DATA']:
                 if self._tbl_addr < len(self.twin.dwell_table):
                     self.twin.dwell_table[self._tbl_addr] = data & 0xFFFF
+                self._tbl_addr = (self._tbl_addr + 1) & 63       # 固件语义: 写后地址自增
             elif reg == P.REG['DWELL_NSAMP']:
                 self.twin.env.dwell_nsamp = int(data)
             elif reg == P.REG['HOST_PORT']:
