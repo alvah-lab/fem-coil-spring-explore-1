@@ -54,8 +54,15 @@ class Pipeline:
         c.rest_Z = Z.copy() if c.rest_Z is None else (c.rest_Z * c.n_rest + Z) / (c.n_rest + 1)
         c.n_rest += 1
 
+    def set_baseline(self, L61_nH: np.ndarray | None):
+        """用实测基线 (无环, 61 观测 L nH) 替换模型载波; None 恢复模型."""
+        self.carrier_L = self.model.carrier_L() if L61_nH is None else np.asarray(L61_nH, float).copy()
+        self.baseline_applied = L61_nH is not None
+
     def process(self, fr: Frame, wall_t: float | None = None) -> FrameResult:
         d = fr.dwells
+        if len(d) != 63:
+            raise ValueError(f'pipeline needs the 63-dwell default table (got {len(d)}); use the bring-up panel')
         n_eff = fr.dwell_nsamp - self.env.link.blank_nsamp
         V, I = decode_dwells(d, n_eff)
         pga = self.pga_gains[(d['dwell_word'] >> 4) & 3]

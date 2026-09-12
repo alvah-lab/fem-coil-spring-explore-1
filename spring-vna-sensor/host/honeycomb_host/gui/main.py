@@ -21,6 +21,7 @@ from .hexmap import HexMap
 from .obsview import ObsView
 from .diag import DiagView
 from .scene_panel import ScenePanel
+from .bringup import BringupPanel
 from .view3d import View3D
 
 pg.setConfigOptions(antialias=False, background='w', foreground='k')
@@ -41,13 +42,16 @@ class MainWindow(QMainWindow):
         self.hexmap = HexMap(); self.setCentralWidget(self.hexmap)
         self.obs = ObsView(); self.diag = DiagView(); self.scene_panel = ScenePanel(lambda: self.source)
         self.view3d = View3D(); self.view3d.gap = self.env.gap
+        self.bringup = BringupPanel(lambda: self.source, self.pipeline)
         docks = {}
         for name, w, area in (('观测', self.obs, Qt.DockWidgetArea.RightDockWidgetArea),
                               ('3D 场形变', self.view3d, Qt.DockWidgetArea.RightDockWidgetArea),
                               ('诊断', self.diag, Qt.DockWidgetArea.BottomDockWidgetArea),
-                              ('孪生场景', self.scene_panel, Qt.DockWidgetArea.LeftDockWidgetArea)):
+                              ('孪生场景', self.scene_panel, Qt.DockWidgetArea.LeftDockWidgetArea),
+                              ('回板测试', self.bringup, Qt.DockWidgetArea.LeftDockWidgetArea)):
             d = QDockWidget(name); d.setWidget(w); self.addDockWidget(area, d); docks[name] = d
         self.tabifyDockWidget(docks['观测'], docks['3D 场形变'])     # 右侧标签页: 观测 / 3D
+        self.tabifyDockWidget(docks['孪生场景'], docks['回板测试'])    # 左侧标签页: 场景 / 回板测试
         docks['观测'].raise_()
         self.hexmap.unit_clicked.connect(self.obs.set_unit)
         # 工具栏
@@ -85,6 +89,7 @@ class MainWindow(QMainWindow):
                 return
             self.source = ReplaySource(path)
         self.source.frame_ready.connect(self.worker.push)
+        self.source.frame_ready.connect(self.bringup.on_frame)
         self.source.status.connect(lambda s: self.statusBar().showMessage(s, 5000))
         self.source.start()
         self.statusBar().showMessage(f'数据源: {kind}', 3000)

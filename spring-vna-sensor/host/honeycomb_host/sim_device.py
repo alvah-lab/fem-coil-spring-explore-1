@@ -22,6 +22,7 @@ class SimDevice:
         self.regs = {P.REG['DEVICE_ID']: P.DEVICE_ID, P.REG['FRAME_CTRL']: P.FRAME_CTRL_RUN,
                      P.REG['DWELL_NSAMP']: twin.env.dwell_nsamp, P.REG['NCO_FREQ_WORD']: twin.env.nco_word,
                      P.REG['N_DWELL']: len(twin.dwell_table)}
+        self._tbl_full = np.zeros(64, np.uint16); self._tbl_full[:len(twin.dwell_table)] = twin.dwell_table
         self._tbl_addr = 0
         self.rng = np.random.default_rng(7)
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -44,9 +45,13 @@ class SimDevice:
             if reg == P.REG['DWELL_TABLE_ADDR']:
                 self._tbl_addr = data
             elif reg == P.REG['DWELL_TABLE_DATA']:
+                self._tbl_full[self._tbl_addr] = data & 0xFFFF
                 if self._tbl_addr < len(self.twin.dwell_table):
                     self.twin.dwell_table[self._tbl_addr] = data & 0xFFFF
                 self._tbl_addr = (self._tbl_addr + 1) & 63       # 固件语义: 写后地址自增
+            elif reg == P.REG['N_DWELL']:
+                n = max(1, min(64, int(data)))
+                self.twin.dwell_table = self._tbl_full[:n].copy()
             elif reg == P.REG['DWELL_NSAMP']:
                 self.twin.env.dwell_nsamp = int(data)
             elif reg == P.REG['HOST_PORT']:
@@ -97,10 +102,16 @@ def main(argv=None):
     ap.add_argument('--cmd-port', type=int, default=P.FPGA_PORT); ap.add_argument('--data-port', type=int, default=P.DATA_PORT)
     ap.add_argument('--rate', type=float, default=None); ap.add_argument('--drop', type=float, default=0.0)
     ap.add_argument('--noise', default='hardware', choices=['hardware', 'sig2_matched', 'off'])
+    ap.add_argument('--shim', default=None, help='垫片场景 unit:gap_mm[:tilt_deg[:tilt_dir_deg[:dx[:dy]]]] (其余单元无环), 覆盖 --scene')
     ap.add_argument('-v', action='store_true')
     a = ap.parse_args(argv)
     env = Environment(noise=NoiseModel(preset=a.noise))
-    tw = Twin(env=env, scene=getattr(Scenes, a.scene)())
+    if a.shim:
+        v = [float(x) for x in a.shim.split(':')] + [0.0] * 6
+        scene = Scenes.shim(int(v[0]), v[1], v[2], v[3], v[4], v[5])
+    else:
+        scene = getattr(Scenes, a.scene)()
+    tw = Twin(env=env, scene=scene)
     dev = SimDevice(tw, a.host, a.cmd_port, a.data_host, a.data_port, a.drop, rate_hz=a.rate, verbose=a.v)
     try:
         asyncio.run(dev.run())

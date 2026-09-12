@@ -23,3 +23,8 @@ GUI 操作：左侧"孪生场景"面板拖施力点/压深/剪切/接触温度�
 | `gui/` | PyQt6 + pyqtgraph：蜂窝热图、61 观测视图、诊断、孪生场景面板 |
 
 关键约定见 `docs/主机协议_UDP帧格式_v0.md`。坑：旧 FastHenry 脚本导入即跑求解器；`pcb_valid_base.npz` 无效；驻留 12500 样本@62.5MSps；边观测 ~100% 依赖环-环杂化，R–R 精度不可省。
+
+## 回板测试面板（左侧"回板测试"标签，2026-09-12）
+状态 / 单驻留 / 基线 / 单元扫描 / 垫片标定 / 噪声-稳定性 六个页，直接消费任意驻留表的原始帧，不经跟踪器。
+先在数字孪生上演练：`docs/回板测试手册_数字孪生.md`。核心逻辑在 `honeycomb_host/bringup.py`（`frame_to_Z`、`Baseline`、`CalibLog`、`RunningStats`、`model_shim`），
+孪生新增 `Scenes.no_rings()` / `Scenes.shim(unit, gap, tilt, dir, dx, dy)` 与任意驻留表驱动；`sim_device.py --shim 9:1.75:5:0`。

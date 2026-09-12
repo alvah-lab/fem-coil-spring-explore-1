@@ -22,11 +22,14 @@ class DataSource(QThread):
         self._stop.set(); self.wait(2000)
     def send_command(self, cmd: P.Command):
         pass
+    def read_reg(self, name: str):
+        return None
 
 class TwinSource(DataSource):
     def __init__(self, twin: Twin, realtime: bool = True, parent=None):
         super().__init__(parent)
         self.twin = twin; self.realtime = realtime
+        self.regs = {'RF_EN': 0, 'FRAME_CTRL': 1}
         self._setters = queue.Queue()
         self.lock = threading.Lock()
     def set_scene(self, scene):
@@ -35,11 +38,28 @@ class TwinSource(DataSource):
         """fn(twin) 在孪生线程内执行."""
         self._setters.put(lambda: fn(self.twin))
     def send_command(self, cmd: P.Command):
+        """模拟固件寄存器语义: 驻留表/长度/RF_EN/DRIVE_AMP 等; 返回 True."""
         if cmd.name == 'dwell_table':
             tbl = np.asarray(cmd.value, np.uint16).copy()
             self._setters.put(lambda: setattr(self.twin, 'dwell_table', tbl))
         elif cmd.name == 'DWELL_NSAMP':
             v = int(cmd.value); self._setters.put(lambda: setattr(self.twin.env, 'dwell_nsamp', v))
+        elif cmd.name in ('N_DWELL',):
+            v = int(cmd.value); self._setters.put(lambda: setattr(self.twin, 'dwell_table', self.twin.dwell_table[:v]))
+        elif cmd.name in P.REG:
+            self.regs[cmd.name] = int(cmd.value)
+        return True
+    def read_reg(self, name: str) -> int | None:
+        """孪生的寄存器视图 (与固件 v0.1 语义对齐的只读子集)."""
+        if name == 'DEVICE_ID': return P.DEVICE_ID
+        if name == 'FW_ID': return 0x54330001
+        if name == 'STATUS': return 0b01111                    # running, adc_locked, phy, link_ready
+        if name == 'LINK_STATUS': return 0b01
+        if name == 'ERR_CNT': return 0
+        if name == 'N_DWELL': return len(self.twin.dwell_table)
+        if name == 'DWELL_NSAMP': return self.twin.env.dwell_nsamp
+        if name == 'FRAME_ID': return self.twin.seq
+        return self.regs.get(name, {'BLANK_NSAMP': 312, 'DRIVE_AMP': 4096, 'NCO_FREQ_WORD': 0x20000000}.get(name, 0))
     def run(self):
         period = self.twin.env.frame_period_s
         nxt = time.perf_counter()
@@ -82,6 +102,18 @@ class UdpSource(DataSource):
                 self.status.emit(f'cmd {cmd.name}: no ack from {self.device}')
         s.close()
         return ok
+    def read_reg(self, name: str) -> int | None:
+        """REG_READ 一个寄存器, 返回 payload; 无应答 → None."""
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.settimeout(0.2)
+        pk = P.pack_cmd(P.OP_REG_READ if name != 'identify' else P.OP_IDENTIFY, self.cmd_seq, P.REG.get(name, 0))
+        s.sendto(pk, self.device); self.cmd_seq += 1
+        try:
+            r, _ = s.recvfrom(64)
+            return P.unpack_rsp(r)[3]
+        except socket.timeout:
+            return None
+        finally:
+            s.close()
     def stop(self):
         if self.autostart and self.sock is not None:
             try:
@@ -99,7 +131,7 @@ class UdpSource(DataSource):
         self.status.emit(f'listening {self.listen}')
         if self.autostart:
             if self.send_command(P.Command('identify')):
-                self.send_command(P.Command('HOST_PORT', data=self.listen[1]))
+                self.send_command(P.Command('HOST_PORT', self.listen[1]))
                 self.send_command(P.Command('start'))
                 self.status.emit(f'device {self.device}: identify ok, FRAME_CTRL=RUN')
         while not self._stop.is_set():
@@ -152,6 +184,7 @@ class PipelineWorker(QThread):
         self.q = queue.Queue(maxsize=maxsize)
         self._stop = threading.Event()
         self.n_dropped = 0
+        self.n_skipped = 0
         self.recorder = None
     def push(self, fr: Frame):
         if self.recorder is not None:
@@ -169,6 +202,9 @@ class PipelineWorker(QThread):
             try:
                 fr = self.q.get(timeout=0.1)
             except queue.Empty:
+                continue
+            if len(fr.dwells) != 63:
+                self.n_skipped += 1     # 回板测试模式的非标准驻留表: 只走 bring-up 面板
                 continue
             try:
                 res = self.pipeline.process(fr, time.perf_counter())

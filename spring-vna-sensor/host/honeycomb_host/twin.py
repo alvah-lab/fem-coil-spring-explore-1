@@ -116,11 +116,47 @@ class Scene:
     q_of_t: Callable[[float], np.ndarray]   # t → q(57) mm
     duration_s: float = 1e9
     dT_of_t: Callable[[float], np.ndarray] | None = None
+    present: np.ndarray | None = None       # (19,) bool: 环在位; None = 全部在位
+    poses_of_t: Callable[[float], np.ndarray] | None = None   # t → 直接给 (19,5) 位姿 (dx,dy,dz,tax,tay), 覆盖 q_of_t
+
+
+def word_fields(word: int) -> dict:
+    """驻留字 → 字段 (与 A704 dwell_decode 一致)."""
+    w = int(word)
+    return dict(drv=(w >> 11) & 31, sns=(w >> 6) & 31, pga=(w >> 4) & 3, ref=(w >> 3) & 1, vna=(w >> 2) & 1, rf_en=(w >> 1) & 1)
+
+
+OBS_INDEX = {(kind, i, j): n for n, (kind, i, j) in enumerate(G.OBS)}
+
+
+def obs_of_word(word: int) -> int | None:
+    """驻留字对应的 61 观测索引; 参考/电流标定/无线圈/非相邻 → None."""
+    f = word_fields(word)
+    d, s = f['drv'], f['sns']
+    if d >= G.NU or s >= G.NU:
+        return None
+    return OBS_INDEX.get(('self', d, d) if d == s else ('edge', min(d, s), max(d, s)))
 
 class Scenes:
     @staticmethod
     def rest():
         return Scene('rest', lambda t: np.zeros(3 * G.NU))
+    @staticmethod
+    def no_rings():
+        """裸线圈板: 一个环都不放 → 只剩载波 (基线标定用)."""
+        return Scene('no_rings', lambda t: np.zeros(3 * G.NU), present=np.zeros(G.NU, bool))
+    @staticmethod
+    def shim(unit: int = 9, gap_mm: float = 1.75, tilt_deg: float = 0.0, tilt_dir_deg: float = 0.0,
+             dx_mm: float = 0.0, dy_mm: float = 0.0, others: bool = False, model_gap: float = G.GAP_NOM):
+        """刚性垫片 + 单环: 单元 unit 的环在绝对间隙 gap_mm、倾角 tilt_deg (方位 tilt_dir_deg)、面内偏移 (dx,dy);
+        其余单元无环 (others=False) 或静息在位 (others=True). model_gap 为模型基准间隙 (pose dz 相对量)."""
+        present = np.full(G.NU, bool(others)); present[unit] = True
+        th = np.radians(tilt_deg); ph = np.radians(tilt_dir_deg)
+        def poses(t):
+            p = np.zeros((G.NU, 5))
+            p[unit] = [dx_mm, dy_mm, gap_mm - model_gap, th * np.cos(ph), th * np.sin(ph)]
+            return p
+        return Scene(f'shim_u{unit}_g{gap_mm:g}_t{tilt_deg:g}', lambda t: np.zeros(3 * G.NU), present=present, poses_of_t=poses)
     @staticmethod
     def point_press(x0=0.0, y0=0.0, depth=-0.4, sigma=G.PITCH * 1.2, shear=(0.0, 0.0), ramp_s=0.5):
         def q(t):
@@ -154,7 +190,7 @@ class Scenes:
         def dT_of_t(t):
             return _gauss_w(0, 0, dT, sigma) * (1 - np.exp(-(t - t0) / tau)) if t >= t0 else np.zeros(G.NU)
         return Scene('thermal_touch', q, dT_of_t=dT_of_t)
-    ALL = ('rest', 'point_press', 'shear_cm', 'tilt', 'sweep', 'impact', 'thermal_touch')
+    ALL = ('rest', 'point_press', 'shear_cm', 'tilt', 'sweep', 'impact', 'thermal_touch', 'no_rings', 'shim')
 
 # ---------------- 孪生 ----------------
 class Twin:
@@ -182,10 +218,13 @@ class Twin:
         return np.maximum(n.rel_floor * np.abs(refl), n.abs_floor_nH)
 
     # ---- 物理 ----
-    def z61(self, q: np.ndarray, dT_ring=None, dT_coil=None):
+    def z61(self, q: np.ndarray, dT_ring=None, dT_coil=None, poses=None, present=None):
+        """61 观测复阻抗. poses: 直接给 (19,5) 覆盖 q; present: (19,) bool 环在位 (缺席的环用 R→∞ 从网络中移除)."""
         env = self.env
-        poses, clamped = G.clamp_pose(G.pose_of(q), env.gap)
+        poses, clamped = G.clamp_pose(G.pose_of(q) if poses is None else poses, env.gap)
         Rr = self.model.ring.R * (1 + env.alpha_cu * (env.dT_ring_K if dT_ring is None else dT_ring))
+        if present is not None:
+            Rr = np.where(np.asarray(present, bool), Rr, 1e12)
         Rc = self.model.coil.R * (1 + env.alpha_cu * (env.dT_coil_K if dT_coil is None else dT_coil))
         Z = self.model.fold(*self.model.blocks(poses), Rr, Rc)
         Z = Z + np.diag(np.full(G.NU, env.r_on_ohm))      # 开关 Ron 只进自观测实部
@@ -232,34 +271,42 @@ class Twin:
         dt = env.frame_period_s if dt is None else dt
         q = np.asarray(self.scene.q_of_t(self.t), float)
         dT = self.scene.dT_of_t(self.t) if self.scene.dT_of_t else None
-        z, zc, poses, clamped = self.z61(q, dT)
+        sc_poses = self.scene.poses_of_t(self.t) if self.scene.poses_of_t else None
+        z, zc, poses, clamped = self.z61(q, dT, poses=sc_poses, present=self.scene.present)
         # 链路漂移
         if env.link.drift:
             g = self.link_gain
             g *= (1 + env.link.rw_amp_per_rt_s * np.sqrt(dt) * self.rng.standard_normal()) * \
                  np.exp(1j * env.link.rw_phase_rad_per_rt_s * np.sqrt(dt) * self.rng.standard_normal())
             self.link_gain = g
-        pga_idx = (self.dwell_table >> 4) & 3
-        gpga = np.array(env.link.pga_gains)[pga_idx]
-        # 61 观测: V = Z·I·G·PGA ; 参考; 电流标定
-        V = np.empty(N_DWELL, complex); Ich = np.empty(N_DWELL, complex)
+        tbl = np.asarray(self.dwell_table, np.uint16)
+        nd = len(tbl)
+        gpga = np.array(env.link.pga_gains)[(tbl >> 4) & 3]
         zsig = zc if env.coff_enable else z
         if env.noise.preset == 'sig2_matched':
             # 在阻抗域加噪声: ΔL ~ N(0, sig_nH) → ΔZ = jωΔL
             zsig = zsig + 1j * self.w * self.sig_nH * 1e-9 * self.rng.standard_normal(G.NOBS)
-        V[:G.NOBS] = zsig * env.i_drive_A * self.link_gain * gpga[:G.NOBS]
-        Ich[:G.NOBS] = env.i_drive_A * self.link_gain_i * env.link.isense_V_per_A
-        V[OBS_REF] = self.V_ref0 * self.link_gain * gpga[OBS_REF]
-        Ich[OBS_REF] = self.I_ref0 * self.link_gain_i * env.link.isense_V_per_A
-        V[OBS_ISENSE] = 0.0
-        Ich[OBS_ISENSE] = self.I_ref0 * self.link_gain_i * env.link.isense_V_per_A
+        # 驻留表驱动 (任意长度/顺序, 与固件语义一致): 线圈观测 V = Z·I·G·PGA; 参考; 电流标定; 无线圈 → 0
+        V = np.zeros(nd, complex); Ich = np.zeros(nd, complex)
+        i_ch = env.i_drive_A * self.link_gain_i * env.link.isense_V_per_A
+        flags = np.zeros(nd, np.uint8)
+        for k, wd in enumerate(tbl):
+            f = word_fields(int(wd))
+            n = obs_of_word(int(wd))
+            if n is not None:
+                V[k] = zsig[n] * env.i_drive_A * self.link_gain * gpga[k]
+            elif f['ref']:
+                V[k] = self.V_ref0 * self.link_gain * gpga[k]
+                flags[k] |= FLAG_REF
+            if f['vna']:
+                flags[k] |= FLAG_ISENSE
+            Ich[k] = i_ch
         sat = (np.abs(V) > ADC_FS_V) | (np.abs(Ich) > ADC_FS_V)
         n_eff = env.dwell_nsamp - env.link.blank_nsamp
         VI, VQ, II, IQ = self.accumulate(V, Ich, n_eff)
-        d = np.zeros(N_DWELL, DWELL_DTYPE)
-        d['obs_id'] = np.arange(N_DWELL); d['dwell_word'] = self.dwell_table
-        d['flags'] = sat.astype(np.uint8) * FLAG_SAT
-        d['flags'][OBS_REF] |= FLAG_REF; d['flags'][OBS_ISENSE] |= FLAG_ISENSE
+        d = np.zeros(nd, DWELL_DTYPE)
+        d['obs_id'] = np.arange(nd); d['dwell_word'] = tbl
+        d['flags'] = flags | sat.astype(np.uint8) * FLAG_SAT
         d['V_I'], d['V_Q'], d['I_I'], d['I_Q'] = VI, VQ, II, IQ
         truth = TwinTruth(self.t, q, poses, clamped, z, zc, self.link_gain, np.imag(z) / self.w * 1e9)
         fr = Frame(self.seq, int(round(self.t * env.fs)), env.dwell_nsamp, env.nco_word, d, self.seq, 0, truth)
