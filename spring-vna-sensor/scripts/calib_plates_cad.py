@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""K18 标定整板 (一体打印, N=8, 转位复用): 19 格实心蜂窝 + 围框 + 12 定位通孔 + 板号 + 2 测量座, 每块板一个预先固定的环布局.
+"""K18 标定整板 (一体打印, N=8, 转位复用): 19 格实心蜂窝 + 围框 + 12 定位通孔 + 板号, 每块板一个预先固定的环布局.
 
 用 coil-5 的 .venv 跑:  /work/alvah-labs/spiral-coil/coil-5/.venv/bin/python3 scripts/calib_plates_cad.py [--only A1,B2]
 输出 reports/calib_plates/: plate_<code>.step/.stl, plates.json (布局表, 供主机 GUI/孪生), README.md 由脚本写表格.
@@ -8,7 +8,6 @@
 - 格: 对边 = PITCH 5.2 无缝拼接, 有环格顶面在 H = gap − 0.13 (环底面; 环质心→L1 铜面 = gap), 中心凸柱 Ø2.94×0.2 卡环内孔 + 其上完整扁圆锥 (母线 30°, 高 0.85, 收尖) 导入;
   无环格实心低平台 H_BLANK = 0.8 (无凸柱). 倾斜格顶面绕格心倾斜 (凸柱沿法向), 偏移格凸柱偏移 (dx,dy).
 - 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); −y 侧刻板号.
-- 测量耳: 围框 ±x 外壁向外伸出的 3×3 小耳, 高度 = 该板环座最低 / 最高 H, 上下面外露, 千分尺直接量作整板高度基准.
 - 板底 z=0 整面贴 PCB 阻焊面. 打印: 以一个侧沿做支撑 (SLA).
 """
 import os, sys, math, json, argparse
@@ -173,12 +172,6 @@ def plate(code, layout):
     # 方向标 (+x 外壁)
     x_out = XY[18][0] + (PITCH + 2 * WALL) / 2
     body = body.union(cq.Workplane('XY').polyline([(-0.3, -0.8), (-0.3, 0.8), (1.0, 0)]).close().extrude(T_RIM).translate((x_out, 0, 0)))
-    # 测量耳: 从 ±x 外壁向外伸出 3×3 小耳, 高 = 该板环座最低 / 最高 H (无环时 H_BLANK); 上下两面外露, 千分尺直接量
-    Hs = sorted({round(s_['gap'] - T_RING / 2 - T_MASK, 4) for s_ in cells.values()}) or [H_BLANK]
-    x_wall = XY[18][0] + (PITCH + 2 * WALL) / 2          # +x 外壁平边
-    for sign, Hm, yoff in ((-1, Hs[0], -4.0), (1, Hs[-1], 4.0)):
-        tab = cq.Workplane('XY').rect(3.6, 3.0).extrude(Hm).translate((sign * (x_wall + 1.5), yoff, 0))
-        body = body.union(tab)
     # 板号: −y 外壁顶面
     y_lab = XY[12][1] - PITCH / 2 - WALL / 2   # 最下一排 (单元 7/12/16) 外壁
     body = engrave(body, code, T_RIM, 1.6, 0.15, CH_LETTER, 0.0, y_lab, (3.0, 1.0))
