@@ -32,7 +32,7 @@ R_BOSS = 1.47               # 中心凸柱半径: 环内孔 Ø3.0 − 0.06 配�
 GAPS = (1.0, 1.35, 1.75, 2.0, 2.53)
 TILTS = (0.0, 2.0, 5.0)
 OFFSETS = (0.0, 0.5)
-CH_BOTTOM, CH_BOSS = 0.25, 0.05   # 片底外缘导入倒角 / 凸柱顶缘倒角
+CH_BOTTOM, CH_LETTER = 0.25, 0.04   # 片底外缘导入倒角 / 字母槽口倒角
 LETTER_H, LETTER_D = 2.0, 0.10    # 凸柱顶面字母: 字高 / 刻深 (凸柱高 0.2)
 # 型号字母 (查表; README 有对照): (gap, tilt, tilt_dir, dx, ring)
 CODES = {
@@ -70,6 +70,22 @@ def annulus(ro, ri, t):
     return cq.Workplane('XY').circle(ro).circle(ri).extrude(t)
 
 
+def engrave(wp, txt, z_face, size, depth, ch, box_r):
+    """在 wp 的 z=z_face 水平面上刻字 (深 depth), 再给字母槽口的边倒角 ch (BoxSelector 选出该平面内、半径 box_r 内的边)."""
+    try:
+        t = cq.Workplane('XY').text(txt, size, -depth, combine=False, halign='center', valign='center').translate((0, 0, z_face))
+        wp = wp.cut(t)
+    except Exception as e:
+        print('text skipped:', e); return wp
+    if ch > 0:
+        try:
+            sel = cq.selectors.BoxSelector((-box_r, -box_r, z_face - 1e-3), (box_r, box_r, z_face + 1e-3), boundingbox=True)
+            wp = wp.edges(sel).chamfer(ch)
+        except Exception as e:
+            print('letter chamfer skipped:', e)
+    return wp
+
+
 def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, code=''):
     """一片: 实心六棱柱, 顶面(可倾斜)平整, 只留中心凸柱 (Ø2·R_BOSS × T_RING) 卡住环的内孔;
     型号字母刻在凸柱顶面 (空白片刻在顶面中心); 片底外缘倒角, 倾斜高侧 V 缺口."""
@@ -84,18 +100,12 @@ def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, co
     def on_top(wp):   # 把在 z=0 平面上建的体放到 (可倾斜的) 顶面上, 中心 (dx,dy)
         return wp.rotate((0, 0, 0), axis, math.degrees(th)).translate((dx, dy, H))
     if ring:
-        boss = cq.Workplane('XY').circle(R_BOSS).extrude(T_RING).edges('>Z').chamfer(CH_BOSS)
+        boss = cq.Workplane('XY').circle(R_BOSS).extrude(T_RING)
+        if code:   # 字母刻在凸柱顶面, 槽口倒角; 都在未倾斜坐标系里做完再放上去
+            boss = engrave(boss, code, T_RING, LETTER_H, LETTER_D, CH_LETTER, R_BOSS - 0.05)
         body = body.union(on_top(boss))
-        z_txt = T_RING
-    else:
-        z_txt = 0.0
-    if code:
-        try:
-            t = (cq.Workplane('XY').text(code, LETTER_H, -LETTER_D, combine=False, halign='center', valign='center')
-                 .translate((0, 0, z_txt)))
-            body = body.cut(on_top(t))
-        except Exception as e:      # 字体缺失时跳过刻字
-            print('text skipped:', e)
+    elif code:     # 空白片: 字母刻在顶面中心 (空白片无倾斜)
+        body = engrave(body, code, H, LETTER_H, LETTER_D, CH_LETTER, R_BOSS)
     # 倾斜方向: 高侧平边中点上开 V 缺口 (顶面)
     if tilt_deg > 0:
         notch = (cq.Workplane('XY').polyline([(-0.5, 0), (0.5, 0), (0, -0.6)]).close().extrude(5)
@@ -152,12 +162,7 @@ def gauge(t=3.0, depth=2.2, lead=0.3):
                    .workplane(offset=lead).polyline(hex_pts(r + lead * 2 / math.sqrt(3), x, 0)).close().loft())
         blk = blk.cut(lead_in)
         blk = blk.cut(cq.Workplane('XY').circle(1.5).extrude(t).translate((x, 0, 0)))
-        try:
-            lab = (cq.Workplane('XY').text(txt, 2.5, -0.15, combine=False, halign='center', valign='center')
-                   .translate((x, -4.4, t)))
-            blk = blk.cut(lab)
-        except Exception as e:
-            print('text skipped:', e)
+        blk = engrave(blk.translate((-x, 4.4, 0)), txt, t, 2.5, 0.15, 0.05, 1.6).translate((x, -4.4, 0))
     return blk
 
 
