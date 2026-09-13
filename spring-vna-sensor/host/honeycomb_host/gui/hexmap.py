@@ -63,8 +63,9 @@ class HexMap(QWidget):
             vals = np.zeros(G.NU)
         self.cbar.setLevels((lo, hi))
         cols = self.cmap.map(np.clip((vals - lo) / (hi - lo), 0, 1), mode='qcolor')
-        for it, c in zip(self.items, cols):
-            it.setBrush(QBrush(c))
+        present = getattr(res, 'present', None)
+        for i, (it, c) in enumerate(zip(self.items, cols)):
+            it.setBrush(QBrush(c if present is None or present[i] else QColor(235, 235, 235)))   # 缺席环: 灰
         if self.arrow.currentText().startswith('(u') and tr is not None:
             u = tr.u * 1e3 / self.arrow_scale * 0.1; v = tr.v * 1e3 / self.arrow_scale * 0.1   # 100µm → 1mm
             xs = np.empty(2 * G.NU); ys = np.empty(2 * G.NU)

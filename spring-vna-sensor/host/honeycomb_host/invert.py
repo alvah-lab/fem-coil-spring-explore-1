@@ -25,7 +25,7 @@ class TrackerConfig:
     reset_resid_factor: float = 5.0
     rel_floor: float = 1e-3
     abs_floor_nH: float = 0.005
-    box_w: float = 0.75
+    box_w: float = 1.6          # |w| 上限: 静息 2.53 → 绝对间隙 1.0..3.0 (clamp_pose 再按绝对间隙钳位)
     box_uv: float = 0.5
 
 @dataclass
@@ -65,8 +65,30 @@ class Tracker:
         self.n_reset = 0; self.n_relin = 0
         self._pending = None
         self._relin_thread = None
+        self._gen = 0                    # 线性化代数: 掩码切换后, 后台算出的旧代数结果作废
         self.async_relin = True          # 重线性化在后台线程 (双缓冲)
+        self.present = np.ones(G.NU, bool)   # 环在位掩码 (回板阶段部分放环)
+        self._frozen = np.zeros(3 * G.NU, bool)
+        self.Rr = None                       # None = 模型默认; 缺席环 1e12 Ω
         self.linearize(self.q)
+
+    # ---- 部分放环 ----
+    def set_present(self, mask) -> bool:
+        """更新环在位掩码: 缺席环从网络移除 (R→∞), 其位姿冻结为 0, 同步重线性化. 掩码未变返回 False."""
+        mask = np.asarray(mask, bool)
+        if mask.shape != (G.NU,) or np.array_equal(mask, self.present):
+            return False
+        self.present = mask.copy()
+        self.Rr = None if mask.all() else np.where(mask, self.model.ring.R, 1e12)
+        self._frozen = np.tile(~mask, 3)
+        self.q[self._frozen] = 0.0
+        self._gen += 1; self._pending = None
+        self.linearize(self.q)
+        self.chi2_hist.clear(); self.sat_count = 0
+        return True
+
+    def _observe(self, poses):
+        return self.model.observe_L(poses) if self.Rr is None else self.model.observe_L(poses, self.Rr)
 
     # ---- 线性化 ----
     def linearize(self, q_lin: np.ndarray) -> dict:
@@ -76,13 +98,17 @@ class Tracker:
         return self.lin
 
     def _compute_lin(self, q_lin):
-        J = self.model.jacobian(G.pose_of(q_lin))
+        J = self.model.jacobian(G.pose_of(q_lin), R_ring=self.Rr)
         Jc = (J / self.sig[:, None]) @ G.T_S
+        if not self.present.all():
+            Jc[:, np.tile(~self.present, 3)] = 0.0     # 缺席环的 (w,u,v) 冻结
         U, S, Vt = np.linalg.svd(Jc, full_matrices=False)
         ss = np.sort(S)
-        cut = ss[self.cfg.n_weak] * 0.5
-        Sinv = np.where(S > cut, 1 / np.maximum(S, 1e-30), 0.0)
-        Sinv_w = np.where((S <= cut) & (S > 1e-6), 1 / np.maximum(S, 1e-30), 0.0)
+        nz = ss[ss > 1e-9 * max(ss[-1], 1e-30)]        # 冻结 DOF 的零奇异值不参与弱模式判定
+        cut = (nz[self.cfg.n_weak] if len(nz) > self.cfg.n_weak else 0.0) * 0.5
+        eps = 1e-9 * max(S.max(), 1e-30)            # 冻结 DOF 的数值零奇异值 (~1e-13) 不能取倒数
+        Sinv = np.where(S > max(cut, eps), 1 / np.maximum(S, 1e-30), 0.0)
+        Sinv_w = np.where((S <= cut) & (S > max(1e-6, eps)), 1 / np.maximum(S, 1e-30), 0.0)
         return dict(q_lin=np.array(q_lin), J=J, S=S, cut=cut, Jp=(Vt.T * Sinv) @ U.T,
                     Jp_w=(Vt.T * Sinv_w) @ U.T, weak=Vt[np.argsort(S)[:self.cfg.n_weak]])
 
@@ -91,8 +117,11 @@ class Tracker:
         if self._relin_thread is not None and self._relin_thread.is_alive():
             return False
         q_lin = self.q.copy() if q_lin is None else np.array(q_lin)
+        gen = self._gen
         def work():
-            self._pending = self._compute_lin(q_lin)
+            lin = self._compute_lin(q_lin)
+            if gen == self._gen:          # 掩码没变才可用
+                self._pending = lin
         self._relin_thread = threading.Thread(target=work, daemon=True); self._relin_thread.start()
         return True
     def _take_pending(self):
@@ -117,9 +146,10 @@ class Tracker:
         for _ in range(cfg.iters_per_frame):
             poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
             clamped_any |= bool(cl.any())
-            r = (y - self.model.observe_L(poses)) / self.sig
+            r = (y - self._observe(poses)) / self.sig
             dq = np.clip(lin['Jp'] @ r, -cfg.clip, cfg.clip)
             self.q = np.clip(self.q + cfg.damping * dq * G.RANGE_Q, -self.box, self.box)
+            self.q[self._frozen] = 0.0
             dq_norm = float(np.linalg.norm(dq))
             if np.mean(np.abs(dq) >= cfg.clip * 0.999) > 0.5:
                 self.sat_count += 1
@@ -127,9 +157,10 @@ class Tracker:
                 self.sat_count = 0
         if self.frame % cfg.slow_every == cfg.slow_every - 1:
             poses, _ = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
-            r = (y - self.model.observe_L(poses)) / self.sig
+            r = (y - self._observe(poses)) / self.sig
             dqw = np.clip(lin['Jp_w'] @ r, -cfg.slow_clip, cfg.slow_clip)
             self.q = np.clip(self.q + cfg.slow_damping * dqw * G.RANGE_Q, -self.box, self.box)
+            self.q[self._frozen] = 0.0
         poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
         y_pred = y - r * self.sig          # 步前预测 (省一次正演; 与当前 q 差一步)
         resid = r
@@ -139,11 +170,12 @@ class Tracker:
             self.chi2_hist.pop(0)
         # 发散保护
         med = np.median(self.chi2_hist[:-3]) if len(self.chi2_hist) > 6 else None
-        if self.sat_count >= 3 or (med is not None and med > 0 and
+        improving = len(self.chi2_hist) >= 4 and chi2 < 0.9 * self.chi2_hist[-4]
+        if (self.sat_count >= 3 and not improving) or (med is not None and med > 0 and
                                    all(c > cfg.reset_resid_factor * med for c in self.chi2_hist[-3:]) and chi2 > 25):
             self.reset(); did_reset = True; lin = self.lin
             poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
-            y_pred = self.model.observe_L(poses); resid = (y - y_pred) / self.sig; chi2 = float(np.mean(resid ** 2))
+            y_pred = self._observe(poses); resid = (y - y_pred) / self.sig; chi2 = float(np.mean(resid ** 2))
         # 重线性化触发
         far = np.max(np.abs((self.q - lin['q_lin']) / G.RANGE_Q)) > cfg.relin_dq
         if not did_reset and (far or (self.frame + 1) % cfg.relin_every == 0):

@@ -230,9 +230,9 @@ class FastModel:
         poses, _ = G.clamp_pose(poses, self.cfg.gap)
         return obs_of(self.fold(*self.blocks(poses), R_ring, R_coil))
 
-    def observe_L(self, poses) -> np.ndarray:
-        """61 观测有效电感 Im(Z)/ω, nH (反演拟合量)."""
-        return np.imag(self.observe_Z(poses)) / self.w * 1e9
+    def observe_L(self, poses, R_ring=None) -> np.ndarray:
+        """61 观测有效电感 Im(Z)/ω, nH (反演拟合量). R_ring: 每环电阻 (缺席环 1e12 → 从网络移除)."""
+        return np.imag(self.observe_Z(poses, R_ring)) / self.w * 1e9
 
     def carrier_Z(self) -> np.ndarray:
         """无环反射的固定载波观测 (61,) complex."""
@@ -274,8 +274,8 @@ class FastModel:
             out[k] = self._local_ring @ R.T + c
         return out
 
-    def jacobian(self, poses=None, delta: dict = G.DELTA) -> np.ndarray:
-        """(61,95) nH / 满量程, 中心差分, 逐环行更新 (~0.15s)."""
+    def jacobian(self, poses=None, delta: dict = G.DELTA, R_ring=None) -> np.ndarray:
+        """(61,95) nH / 满量程, 中心差分, 逐环行更新 (~0.15s). R_ring: 每环电阻 (缺席环 1e12 → 从网络移除)."""
         poses = np.zeros((G.NU, 5)) if poses is None else np.array(poses, float)
         Mcr0, Mrr0 = self.blocks(poses)
         J = np.zeros((G.NOBS, G.NU * 5))
@@ -284,8 +284,8 @@ class FastModel:
                 dd = delta[dof]
                 pp = poses.copy(); pp[u, d] += dd
                 pm = poses.copy(); pm[u, d] -= dd
-                yp = np.imag(obs_of(self.fold(*self.update_ring(Mcr0, Mrr0, u, pp))))
-                ym = np.imag(obs_of(self.fold(*self.update_ring(Mcr0, Mrr0, u, pm))))
+                yp = np.imag(obs_of(self.fold(*self.update_ring(Mcr0, Mrr0, u, pp), R_ring)))
+                ym = np.imag(obs_of(self.fold(*self.update_ring(Mcr0, Mrr0, u, pm), R_ring)))
                 J[:, u * 5 + d] = (yp - ym) / self.w * 1e9 / (2 * dd) * G.RANGE[dof]
         return J
 

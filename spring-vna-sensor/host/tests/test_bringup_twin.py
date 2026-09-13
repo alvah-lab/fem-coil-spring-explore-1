@@ -105,9 +105,29 @@ def test_no_rings_pauses_tracker():
     for _ in range(2):
         pipe.process(tw.step())
     tw.scene = Scenes.no_rings(); tw.t = 0
-    res = [pipe.process(tw.step()) for _ in range(4)]
-    assert all(r.no_rings and r.track is None for r in res)
-    assert pipe.tracker.n_reset == 1 and np.all(pipe.tracker.q == 0)
+    res = [pipe.process(tw.step()) for _ in range(7)]
+    assert all(r.no_rings and r.track is None for r in res[3:])      # 前 3 帧为切换去抖
+    assert pipe.tracker.n_reset <= 1 and np.all(pipe.tracker.q == 0)
     tw.scene = Scenes.rest(); tw.t = 0
-    r = pipe.process(tw.step())
+    for _ in range(4):
+        r = pipe.process(tw.step())
     assert not r.no_rings and r.track is not None
+
+
+def test_partial_rings_tracker():
+    """单环垫片 (其余无环): 跟踪器自动只拟合在位单元, 其余冻结为 0, 不再发散/复位."""
+    tw = _twin()
+    pipe = Pipeline(tw.env, model=tw.model)
+    for _ in range(2):
+        pipe.process(tw.step())
+    gap = 1.75; w_true = gap - tw.env.gap                                                 # 相对静息 2.53 → -0.78 mm
+    tw.scene = Scenes.shim(unit=9, gap_mm=gap, model_gap=tw.env.gap); tw.t = 0
+    res = None
+    for n in range(25):
+        res = pipe.process(tw.step())
+    assert res.present is not None and res.present[9] and res.present.sum() == 1
+    assert pipe.tracker.n_reset == 0 and res.track is not None
+    q = res.track.q
+    others = np.ones(G.NU, bool); others[9] = False
+    assert np.all(q[:G.NU][others] == 0) and np.all(q[G.NU:].reshape(2, G.NU)[:, others] == 0)
+    assert abs(q[9] - w_true) < 0.03, (q[9], w_true)

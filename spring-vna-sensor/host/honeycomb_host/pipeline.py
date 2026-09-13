@@ -33,6 +33,7 @@ class FrameResult:
     fps: float = 0.0
     seq_gap: int = 0
     no_rings: bool = False         # 无环签名 (跟踪器暂停)
+    present: np.ndarray | None = None   # (19,) 环在位掩码 (按自观测反射自动判定)
 
 class Pipeline:
     def __init__(self, env: Environment, model: FastModel | None = None, tracker_cfg: TrackerConfig | None = None,
@@ -48,6 +49,8 @@ class Pipeline:
         self.q_ring0 = None
         self.no_ring_nH = 3.0          # 自观测反射最大 |ΔL| 低于此值 → 无环签名, 跟踪器暂停 (有环静息 ≥ 7.6 nH)
         self.no_rings = False
+        self.present = np.ones(G.NU, bool)
+        self._present_cand = None; self._present_cnt = 0     # 掩码切换去抖 (连续 3 帧)
         self._last_seq = None
         self._t_last = None
         self.fps = 0.0
@@ -94,7 +97,17 @@ class Pipeline:
         dRe = (ratio - self.q_ring0) * np.abs(L[:G.NU]) * 1e-9 * self.w
         denom = np.maximum(np.abs(refl[:G.NU]) * 1e-9 * self.w / Qr * self.env.alpha_cu, 1e-12)
         dT = dRe / denom
-        self.no_rings = bool(np.abs(refl[:G.NU]).max() < self.no_ring_nH)
+        # 环在位判定: 自观测 |ΔL| ≥ no_ring_nH (有环静息 ≥ 7.6 nH); 连续 3 帧一致才切换 (去抖)
+        cand = np.abs(refl[:G.NU]) >= self.no_ring_nH
+        if self._present_cand is not None and np.array_equal(cand, self._present_cand):
+            self._present_cnt += 1
+        else:
+            self._present_cand = cand.copy(); self._present_cnt = 1
+        if self._present_cnt >= 3 and not np.array_equal(cand, self.present):
+            self.present = cand.copy()
+            if self.tracker is not None:
+                self.tracker.set_present(self.present)
+        self.no_rings = not self.present.any()
         if self.tracker is not None and self.no_rings:
             # 没有环就没有可拟合的位姿: 保持零位姿, 不让跟踪器在发散/复位之间振荡 (只在进入无环态时复位一次)
             if np.any(self.tracker.q != 0):
@@ -112,4 +125,4 @@ class Pipeline:
             if self._t_last is not None and wall_t > self._t_last:
                 self.fps = 0.9 * self.fps + 0.1 / (wall_t - self._t_last)
             self._t_last = wall_t
-        return FrameResult(fr.seq, fr.t_ticks / self.env.fs, Z, L, refl, R, dT, sat, c.link_gain, tr, fr.truth, self.fps, gap, no_rings=self.no_rings)
+        return FrameResult(fr.seq, fr.t_ticks / self.env.fs, Z, L, refl, R, dT, sat, c.link_gain, tr, fr.truth, self.fps, gap, no_rings=self.no_rings, present=self.present.copy())
