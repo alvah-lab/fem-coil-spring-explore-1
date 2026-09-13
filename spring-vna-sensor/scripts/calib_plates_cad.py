@@ -5,7 +5,7 @@
 输出 reports/calib_plates/: plate_<code>.step/.stl, plates.json (布局表, 供主机 GUI/孪生), README.md 由脚本写表格.
 
 几何 (mm)
-- 格: 对边 = PITCH 5.2 无缝拼接, 有环格顶面在 H = gap − 0.13 (环底面; 环质心→L1 铜面 = gap), 中心凸柱 Ø2.94×0.2 卡环内孔 + 其上 0.2 高 30° 圆锥导入;
+- 格: 对边 = PITCH 5.2 无缝拼接, 有环格顶面在 H = gap − 0.13 (环底面; 环质心→L1 铜面 = gap), 中心凸柱 Ø2.94×0.2 卡环内孔 + 其上完整扁圆锥 (母线 30°, 高 0.85, 收尖) 导入;
   无环格实心低平台 H_BLANK = 0.8 (无凸柱). 倾斜格顶面绕格心倾斜 (凸柱沿法向), 偏移格凸柱偏移 (dx,dy).
 - 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); −y 侧刻板号.
 - 测量耳: 围框 ±x 外壁向外伸出的 3×3 小耳, 高度 = 该板环座最低 / 最高 H, 上下面外露, 千分尺直接量作整板高度基准.
@@ -28,7 +28,7 @@ R_CELL = PITCH / math.sqrt(3)
 R_RING_O, R_RING_I, T_RING = 2.5, 1.5, 0.2
 T_MASK = 0.03
 R_BOSS = 1.47
-H_CONE, A_CONE = 0.2, 30.0        # 凸柱顶部圆锥导入: 高 0.2, 半角 30° (顶径 2.94 − 2·0.2·tan30 = 2.71)
+A_CONE = 30.0                     # 凸柱顶部完整扁圆锥: 母线与水平面 30°, 高 R_BOSS·tan30 = 0.85, 收到尖
 H_BLANK = 0.8
 WALL, T_RIM = 3.5, 2.0
 CH_LETTER = 0.05
@@ -146,9 +146,9 @@ def cell_solid(u, spec):
     body = hex_prism(H + R_CELL * math.tan(th) + 0.3, R_CELL, x, y)
     cutter = (cq.Workplane('XY').rect(20, 20).extrude(10).rotate((0, 0, 0), axis, math.degrees(th)).translate((x, y, H)))
     body = body.cut(cutter)
-    r_top = R_BOSS - H_CONE * math.tan(math.radians(A_CONE))
+    h_cone = R_BOSS * math.tan(math.radians(A_CONE))
     boss = cq.Workplane('XY').circle(R_BOSS).extrude(T_RING)
-    cone = (cq.Workplane('XY').workplane(offset=T_RING).circle(R_BOSS).workplane(offset=H_CONE).circle(r_top).loft())
+    cone = cq.Workplane('XY').add(cq.Solid.makeCone(R_BOSS, 0.0, h_cone, cq.Vector(0, 0, T_RING), cq.Vector(0, 0, 1)))
     boss = boss.union(cone).rotate((0, 0, 0), axis, math.degrees(th)).translate((x + spec['dx'], y + spec['dy'], H))
     return body.union(boss)
 
