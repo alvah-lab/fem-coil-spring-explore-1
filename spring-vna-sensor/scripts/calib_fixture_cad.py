@@ -32,6 +32,15 @@ R_BOSS = 1.47               # 中心凸柱半径: 环内孔 Ø3.0 − 0.06 配�
 GAPS = (1.0, 1.35, 1.75, 2.0, 2.53)
 TILTS = (0.0, 2.0, 5.0)
 OFFSETS = (0.0, 0.5)
+CH_BOTTOM, CH_BOSS = 0.25, 0.05   # 片底外缘导入倒角 / 凸柱顶缘倒角
+LETTER_H, LETTER_D = 2.0, 0.10    # 凸柱顶面字母: 字高 / 刻深 (凸柱高 0.2)
+# 型号字母 (查表; README 有对照): (gap, tilt, tilt_dir, dx, ring)
+CODES = {
+    'A': dict(gap=1.0),  'B': dict(gap=1.35), 'C': dict(gap=1.75), 'D': dict(gap=2.0), 'E': dict(gap=2.53),
+    'F': dict(gap=1.75, tilt_deg=2.0), 'G': dict(gap=1.75, tilt_deg=5.0),
+    'H': dict(gap=1.75, dx=0.5),
+    'Z': dict(gap=1.75, ring=False),
+}
 
 # 单元坐标 (与 host geometry.py 一致: 主机单元 i == 板 COILii)
 sys.path.insert(0, os.path.join(HERE, '..', 'host'))
@@ -61,8 +70,9 @@ def annulus(ro, ri, t):
     return cq.Workplane('XY').circle(ro).circle(ri).extrude(t)
 
 
-def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, label=None):
-    """一片: 实心六棱柱, 顶面(可倾斜)平整, 只留中心凸柱 (Ø2·R_BOSS × T_RING) 卡住环的内孔; 底面刻字, 倾斜高侧 V 缺口."""
+def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, code=''):
+    """一片: 实心六棱柱, 顶面(可倾斜)平整, 只留中心凸柱 (Ø2·R_BOSS × T_RING) 卡住环的内孔;
+    型号字母刻在凸柱顶面 (空白片刻在顶面中心); 片底外缘倒角, 倾斜高侧 V 缺口."""
     H = gap - T_RING / 2 - T_MASK                     # 片心处顶面高度 = 环底面高度
     th = math.radians(tilt_deg); ph = math.radians(tilt_dir_deg)
     axis = (-math.sin(ph), math.cos(ph), 0)           # 倾斜轴 (过片心, 垂直于方位)
@@ -70,25 +80,33 @@ def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, la
     body = hex_prism(Hmax)
     cutter = (cq.Workplane('XY').rect(20, 20).extrude(10).rotate((0, 0, 0), axis, math.degrees(th)).translate((0, 0, H)))
     body = body.cut(cutter)
+    body = body.edges('<Z').chamfer(CH_BOTTOM)
+    def on_top(wp):   # 把在 z=0 平面上建的体放到 (可倾斜的) 顶面上, 中心 (dx,dy)
+        return wp.rotate((0, 0, 0), axis, math.degrees(th)).translate((dx, dy, H))
     if ring:
-        boss = (cq.Workplane('XY').circle(R_BOSS).extrude(T_RING).rotate((0, 0, 0), axis, math.degrees(th))
-                .translate((dx, dy, H)))
-        body = body.union(boss)
+        boss = cq.Workplane('XY').circle(R_BOSS).extrude(T_RING).edges('>Z').chamfer(CH_BOSS)
+        body = body.union(on_top(boss))
+        z_txt = T_RING
+    else:
+        z_txt = 0.0
+    if code:
+        try:
+            t = (cq.Workplane('XY').text(code, LETTER_H, -LETTER_D, combine=False, halign='center', valign='center')
+                 .translate((0, 0, z_txt)))
+            body = body.cut(on_top(t))
+        except Exception as e:      # 字体缺失时跳过刻字
+            print('text skipped:', e)
     # 倾斜方向: 高侧平边中点上开 V 缺口 (顶面)
     if tilt_deg > 0:
         notch = (cq.Workplane('XY').polyline([(-0.5, 0), (0.5, 0), (0, -0.6)]).close().extrude(5)
                  .translate((0, AF / 2 + 0.01, H - 0.6))
                  .rotate((0, 0, 0), (0, 0, 1), tilt_dir_deg - 90))
         body = body.cut(notch)
-    # 底面刻字 (深 0.25, 镜像使从底部看正向)
-    txt = label or (f'{gap:g}' + (f'/{tilt_deg:g}' if tilt_deg else '') + (f'/x{dx:g}' if dx else '') + ('' if ring else 'B'))
-    try:
-        t = cq.Workplane('XY').text(txt, 1.1, 0.25, combine=False, halign='center', valign='center')
-        t = t.mirror('YZ')
-        body = body.cut(t)
-    except Exception as e:      # 字体缺失时跳过刻字
-        print('text skipped:', e)
     return body
+
+
+def tile_by_code(code):
+    return tile(code=code, **CODES[code])
 
 
 def tile_name(gap, tilt, tdir, dx, ring):
@@ -123,15 +141,20 @@ GAUGE_GO = AF + 0.05        # 5.10: 打磨到刚好落入 → 拼装后相邻片
 GAUGE_REF = PITCH           # 5.20: 必须自由落入 (= 单元间距), 否则进不了阵列
 
 
-def gauge(t=3.0, depth=2.2):
-    """六边形尺寸量规: 两个六边形槽 (GO 5.10 / REF 5.20), 槽底通 Ø3 顶出孔, 底面刻字."""
+def gauge(t=3.0, depth=2.2, lead=0.3):
+    """六边形尺寸量规: 两个六边形通槽 (G = GO 5.10 / R = REF 5.20), 槽口导入倒角, 槽底 Ø3 顶出孔, 顶面刻字母."""
     blk = cq.Workplane('XY').rect(24, 12).extrude(t).edges('|Z').fillet(1.0)
-    for x, af, txt in ((-6.0, GAUGE_GO, 'GO 5.10'), (6.0, GAUGE_REF, 'REF 5.20')):
+    for x, af, txt in ((-6.0, GAUGE_GO, 'G'), (6.0, GAUGE_REF, 'R')):
         r = af / math.sqrt(3)
         blk = blk.cut(hex_prism(depth, r, x, 0).translate((0, 0, t - depth)))
+        # 导入倒角: 槽口从 af+2·lead 收到 af (loft)
+        lead_in = (cq.Workplane('XY').workplane(offset=t - lead).polyline(hex_pts(r, x, 0)).close()
+                   .workplane(offset=lead).polyline(hex_pts(r + lead * 2 / math.sqrt(3), x, 0)).close().loft())
+        blk = blk.cut(lead_in)
         blk = blk.cut(cq.Workplane('XY').circle(1.5).extrude(t).translate((x, 0, 0)))
         try:
-            lab = cq.Workplane('XY').text(txt, 1.2, 0.3, combine=False, halign='center', valign='center').translate((x, -4.6, t - 0.3))
+            lab = (cq.Workplane('XY').text(txt, 2.5, -0.15, combine=False, halign='center', valign='center')
+                   .translate((x, -4.4, t)))
             blk = blk.cut(lab)
         except Exception as e:
             print('text skipped:', e)
@@ -155,9 +178,9 @@ def ring_solid(cx, cy, z, tilt_deg=0.0, tilt_dir_deg=0.0):
 def overview(layout=None):
     """装配总览: PCB 片段 (带 6 孔、19 个线圈示意圆环) + 外框 (销入孔) + 19 片 + 铜环. layout: {unit: dict(tile kwargs)}."""
     if layout is None:
-        layout = {9: dict(gap=1.75, tilt_deg=5, tilt_dir_deg=0)}
+        layout = {9: dict(code='G', **CODES['G'])}
         for k, u in enumerate(G.ADJ[9]):
-            layout[u] = dict(gap=GAPS[k % len(GAPS)])
+            c = 'ABCDE'[k % 5]; layout[u] = dict(code=c, **CODES[c])
     pcb = cq.Workplane('XY').rect(40, 36).extrude(-1.0)
     for (hx, hy, d) in HOLES:
         pcb = pcb.cut(cq.Workplane('XY').circle(d / 2).extrude(-1.0).translate((hx, hy, 0)))
@@ -165,7 +188,7 @@ def overview(layout=None):
         pcb = pcb.union(annulus(2.4555, 0.37, 0.02).translate((x, y, 0)))
     parts = [pcb.val(), frame().val()]
     for i, (x, y) in enumerate(XY):
-        kw = layout.get(i, dict(gap=1.75, ring=False))
+        kw = layout.get(i, dict(code='Z', **CODES['Z']))
         t = tile(**kw).translate((x, y, 0))
         parts.append(t.val())
         if kw.get('ring', True):
@@ -180,16 +203,12 @@ def main():
     a = ap.parse_args()
     if not a.frame_only:
         parts = []
-        for gap in GAPS:
-            export(tile(gap), tile_name(gap, 0, 0, 0, True))
-        for tilt in TILTS[1:]:
-            export(tile(1.75, tilt, 0), tile_name(1.75, tilt, 0, 0, True))
-        export(tile(1.75, 0, 0, 0.5), tile_name(1.75, 0, 0, 0.5, True))
-        export(tile(1.75, ring=False), tile_name(1.75, 0, 0, 0, False))
+        for code, kw in CODES.items():
+            export(tile(code=code, **kw), f'tile_{code}_' + tile_name(kw.get('gap', 1.75), kw.get('tilt_deg', 0), kw.get('tilt_dir_deg', 0), kw.get('dx', 0), kw.get('ring', True)))
         # 装配示意: 19 片 (中心 1.75/5°, 邻居各高度, 其余空白) 供检查拼合
         asm = None
         for i, (x, y) in enumerate(XY):
-            t = tile(1.75, 5, 0) if i == 9 else tile(GAPS[i % len(GAPS)], ring=(i in G.ADJ[9]))
+            t = tile_by_code('G') if i == 9 else (tile_by_code('ABCDE'[i % 5]) if i in G.ADJ[9] else tile_by_code('Z'))
             t = t.translate((x, y, 0))
             asm = t if asm is None else asm.union(t)
         export(asm, 'assembly_tiles', stl=False)
