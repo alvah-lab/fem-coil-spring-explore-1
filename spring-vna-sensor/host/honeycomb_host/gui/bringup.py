@@ -6,6 +6,7 @@ from __future__ import annotations
 import time
 import numpy as np
 from PyQt6.QtCore import QTimer, Qt, pyqtSlot
+import time as _time
 from PyQt6.QtWidgets import (QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QGridLayout, QLabel, QPushButton,
                              QSpinBox, QDoubleSpinBox, QComboBox, QCheckBox, QTableWidget, QTableWidgetItem, QFileDialog,
                              QLineEdit, QProgressBar, QGroupBox)
@@ -17,6 +18,19 @@ from ..bringup import frame_to_Z, obs61_from_frame, Baseline, CalibLog, RunningS
 
 REGS_SHOW = ['DEVICE_ID', 'FW_ID', 'STATUS', 'LINK_STATUS', 'ERR_CNT', 'FRAME_CTRL', 'FRAME_ID', 'N_DWELL', 'DWELL_NSAMP',
              'BLANK_NSAMP', 'DRIVE_AMP', 'RF_EN']
+
+
+_DLG = QFileDialog.Option.DontUseNativeDialog   # 原生对话框在部分桌面会藏到主窗口后面, 主窗口看起来"卡死"
+
+
+def _save_dialog(w, title, default, filt):
+    path, _ = QFileDialog.getSaveFileName(w.window(), title, default, filt, options=_DLG)
+    return path
+
+
+def _open_dialog(w, title, filt):
+    path, _ = QFileDialog.getOpenFileName(w.window(), title, '', filt, options=_DLG)
+    return path
 
 
 def _dspin(lo, hi, val, step, dec=2, suffix=''):
@@ -39,6 +53,7 @@ class BringupPanel(QWidget):
         self.last_frame = None
         self.hist_V = []; self.hist_ph = []
         self.scan_ema = None
+        self._last_draw = 0.0
         lay = QVBoxLayout(self); lay.setContentsMargins(2, 2, 2, 2)
         self.tabs = QTabWidget(); lay.addWidget(self.tabs)
         self._build_status(); self._build_single(); self._build_baseline(); self._build_scan(); self._build_calib(); self._build_noise()
@@ -58,9 +73,23 @@ class BringupPanel(QWidget):
                 cb(frames)
         Z, meta = frame_to_Z(fr, self.env)
         if len(fr.dwells) == 1:
-            self._update_single(Z, meta)
+            self.hist_V.append(abs(meta['V'][0]) * 1e3); self.hist_ph.append(np.degrees(np.angle(meta['V'][0])))
+            self.hist_V = self.hist_V[-400:]; self.hist_ph = self.hist_ph[-400:]
         elif len(fr.dwells) == 63:
-            self._update_scan(fr)
+            z61, _ = obs61_from_frame(fr, self.env)
+            if z61 is not None:
+                L = np.imag(z61) / self.w * 1e9
+                a = self.scan_alpha.value()
+                self.scan_ema = L if self.scan_ema is None else (1 - a) * self.scan_ema + a * L
+        # 绘图/文字刷新限频 (主线程被 77 Hz 帧事件排满会让鼠标输入饿死)
+        now = _time.perf_counter()
+        if now - self._last_draw < 0.04:
+            return
+        self._last_draw = now
+        if len(fr.dwells) == 1 and self.tabs.currentIndex() == 1:
+            self._update_single(Z, meta)
+        elif len(fr.dwells) == 63 and self.tabs.currentIndex() == 3:
+            self._update_scan(meta)
 
     def _send(self, name, value=None):
         src = self.get_source()
@@ -138,8 +167,6 @@ class BringupPanel(QWidget):
 
     def _update_single(self, Z, meta):
         V, I = meta['V'][0], meta['I'][0]
-        self.hist_V.append(abs(V) * 1e3); self.hist_ph.append(np.degrees(np.angle(V)))
-        self.hist_V = self.hist_V[-400:]; self.hist_ph = self.hist_ph[-400:]
         z = Z[0]
         f = word_fields(int(meta['words'][0]))
         txt = (f'word 0x{int(meta["words"][0]):04x} drv={f["drv"]} sns={f["sns"]} pga=×{meta["pga"][0]:g} ref={f["ref"]} vna={f["vna"]}   '
@@ -197,12 +224,12 @@ class BringupPanel(QWidget):
     def save_baseline(self):
         if self.baseline is None:
             return
-        path, _ = QFileDialog.getSaveFileName(self, '保存基线', 'baseline.json', '*.json')
+        path = _save_dialog(self, '保存基线', 'baseline.json', '*.json')
         if path:
             self.baseline.save(path); self.bl_info.setText(f'已保存 {path}')
 
     def load_baseline(self):
-        path, _ = QFileDialog.getOpenFileName(self, '载入基线', '', '*.json')
+        path = _open_dialog(self, '载入基线', '*.json')
         if path:
             self.baseline = Baseline.load(path); self._baseline_done_from_loaded()
 
@@ -238,14 +265,8 @@ class BringupPanel(QWidget):
             return self.baseline.L61, '基线'
         return self.model.carrier_L(), '模型'
 
-    def _update_scan(self, fr):
-        z61, meta = obs61_from_frame(fr, self.env)
-        if z61 is None:
-            return
-        L = np.imag(z61) / self.w * 1e9
-        a = self.scan_alpha.value()
-        self.scan_ema = L if self.scan_ema is None else (1 - a) * self.scan_ema + a * L
-        if self.tabs.currentIndex() != 3:
+    def _update_scan(self, meta):
+        if self.scan_ema is None:
             return
         ref, name = self._ref_L()
         dL = self.scan_ema - ref
@@ -318,7 +339,7 @@ class BringupPanel(QWidget):
         self.calib_info.setText('采集中…')
 
     def save_calib(self):
-        path, _ = QFileDialog.getSaveFileName(self, '保存标定记录', 'calib.csv', '*.csv')
+        path = _save_dialog(self, '保存标定记录', 'calib.csv', '*.csv')
         if path:
             self.calib.save_csv(path); self.calib.save_json(path.rsplit('.', 1)[0] + '.json'); self.calib_info.setText(f'已保存 {path}')
 

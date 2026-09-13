@@ -225,11 +225,20 @@ class Twin:
         Rr = self.model.ring.R * (1 + env.alpha_cu * (env.dT_ring_K if dT_ring is None else dT_ring))
         if present is not None:
             Rr = np.where(np.asarray(present, bool), Rr, 1e12)
+        Rc_ = self.model.coil.R * (1 + env.alpha_cu * (env.dT_coil_K if dT_coil is None else dT_coil))
+        # 静态场景 (静息/无环/垫片) 每帧位姿不变: 缓存正演结果, 否则孪生线程 ~20 ms/帧会把 GUI 主线程的 GIL 抢光
+        key = (poses.tobytes(), np.asarray(Rr, float).tobytes(), np.asarray(Rc_, float).tobytes(), env.coff_enable, float(env.r_on_ohm),
+               np.asarray(env.c_off_F, float).tobytes())
+        cache = getattr(self, '_z61_cache', None)
+        if cache is not None and cache[0] == key:
+            z, zc = cache[1]
+            return z.copy(), zc.copy(), poses, clamped
         Rc = self.model.coil.R * (1 + env.alpha_cu * (env.dT_coil_K if dT_coil is None else dT_coil))
         Z = self.model.fold(*self.model.blocks(poses), Rr, Rc)
         Z = Z + np.diag(np.full(G.NU, env.r_on_ohm))      # 开关 Ron 只进自观测实部
         z = obs_of(Z)
         zc = self.coff_fold(Z) if env.coff_enable else z
+        self._z61_cache = (key, (z.copy(), zc.copy()))
         return z, zc, poses, clamped
 
     def coff_fold(self, Z: np.ndarray) -> np.ndarray:
