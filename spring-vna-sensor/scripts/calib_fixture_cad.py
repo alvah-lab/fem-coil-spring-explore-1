@@ -119,6 +119,25 @@ def frame(t_frame=2.0, wall=3.0):
     return fr.union(mark)
 
 
+GAUGE_GO = AF + 0.05        # 5.10: 打磨到刚好落入 → 拼装后相邻片间隙 ≥ 0.10
+GAUGE_REF = PITCH           # 5.20: 必须自由落入 (= 单元间距), 否则进不了阵列
+
+
+def gauge(t=3.0, depth=2.2):
+    """六边形尺寸量规: 两个六边形槽 (GO 5.10 / REF 5.20), 槽底通 Ø3 顶出孔, 底面刻字."""
+    blk = cq.Workplane('XY').rect(24, 12).extrude(t).edges('|Z').fillet(1.0)
+    for x, af, txt in ((-6.0, GAUGE_GO, 'GO 5.10'), (6.0, GAUGE_REF, 'REF 5.20')):
+        r = af / math.sqrt(3)
+        blk = blk.cut(hex_prism(depth, r, x, 0).translate((0, 0, t - depth)))
+        blk = blk.cut(cq.Workplane('XY').circle(1.5).extrude(t).translate((x, 0, 0)))
+        try:
+            lab = cq.Workplane('XY').text(txt, 1.2, 0.3, combine=False, halign='center', valign='center').translate((x, -4.6, t - 0.3))
+            blk = blk.cut(lab)
+        except Exception as e:
+            print('text skipped:', e)
+    return blk
+
+
 def export(wp, name, stl=True):
     exporters.export(wp, os.path.join(OUT, name + '.step'))
     if stl:
@@ -176,6 +195,7 @@ def main():
         export(asm, 'assembly_tiles', stl=False)
     if not a.tiles_only:
         export(frame(), 'frame_19')
+        export(gauge(), 'gauge_hex')
         export(overview(), 'assembly_overview')
 
 
