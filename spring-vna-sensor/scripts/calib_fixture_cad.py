@@ -32,7 +32,7 @@ R_BOSS = 1.47               # 中心凸柱半径: 环内孔 Ø3.0 − 0.06 配�
 GAPS = (1.0, 1.35, 1.75, 2.0, 2.53)
 TILTS = (0.0, 2.0, 5.0)
 OFFSETS = (0.0, 0.5)
-CH_BOTTOM, CH_LETTER = 0.25, 0.04   # 片底外缘导入倒角 / 字母槽口倒角
+CH_LETTER = 0.04                  # 字母槽口倒角 (六边形侧面/底缘不倒角)
 LETTER_H, LETTER_D = 2.0, 0.10    # 凸柱顶面字母: 字高 / 刻深 (凸柱高 0.2)
 # 型号字母 (查表; README 有对照): (gap, tilt, tilt_dir, dx, ring)
 CODES = {
@@ -96,7 +96,6 @@ def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, co
     body = hex_prism(Hmax)
     cutter = (cq.Workplane('XY').rect(20, 20).extrude(10).rotate((0, 0, 0), axis, math.degrees(th)).translate((0, 0, H)))
     body = body.cut(cutter)
-    body = body.edges('<Z').chamfer(CH_BOTTOM)
     def on_top(wp):   # 把在 z=0 平面上建的体放到 (可倾斜的) 顶面上, 中心 (dx,dy)
         return wp.rotate((0, 0, 0), axis, math.degrees(th)).translate((dx, dy, H))
     if ring:
