@@ -141,9 +141,12 @@ def frame(t_frame=2.0, wall=3.0):
                .faces('<Z').workplane().circle(PIN_D / 2).workplane(offset=PIN_CHAMFER).circle(PIN_D / 2 - PIN_CHAMFER).loft()
                .translate((hx, hy, 0)))
         fr = fr.union(pin)
-    # 方向标记: +x 侧外壁一个小三角凸起 (对应主机 x 轴 / 板上 L19 方向)
-    mark = cq.Workplane('XY').polyline([(0, -0.8), (0, 0.8), (1.0, 0)]).close().extrude(t_frame).translate((13.08 + wall * 1.1547 - 0.2, 0, 0))
-    return fr.union(mark)
+    # 方向标记: +x 侧外壁 (单元 18 的外扩六边形平边) 一个小三角凸起, 嵌入墙 0.3 (对应主机 x 轴 / 板上 L19 方向)
+    x_out = XY[18][0] + (PITCH + 2 * CLR_TILE + 2 * wall) / 2
+    mark = cq.Workplane('XY').polyline([(-0.3, -0.8), (-0.3, 0.8), (1.0, 0)]).close().extrude(t_frame).translate((x_out, 0, 0))
+    fr = fr.union(mark)
+    assert len(fr.solids().vals()) == 1, 'frame is not a single solid (marker/pins detached?)'
+    return fr
 
 
 GAUGE_GO = AF + 0.05        # 5.10: 打磨到刚好落入 → 拼装后相邻片间隙 ≥ 0.10
