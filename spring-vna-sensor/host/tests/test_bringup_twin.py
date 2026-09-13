@@ -131,3 +131,28 @@ def test_partial_rings_tracker():
     others = np.ones(G.NU, bool); others[9] = False
     assert np.all(q[:G.NU][others] == 0) and np.all(q[G.NU:].reshape(2, G.NU)[:, others] == 0)
     assert abs(q[9] - w_true) < 0.03, (q[9], w_true)
+
+
+def test_plates_layout_and_prediction():
+    """整板布局表: 转位映射自洽, 孪生场景与模型整板预测一致, 全阵列板在跟踪器下可运行."""
+    from honeycomb_host.twin import load_plates, plate_cells_on_board
+    from honeycomb_host.bringup import plate_expected, plate_record_from_frames, Baseline
+    P = load_plates()
+    assert set(c for c in P if not c.startswith('_')) == {'A0', 'A1C', 'A2C', 'B1', 'B2', 'B3', 'D', 'E1'}
+    # B2 全阵列: 任何取向都一样; A1C: 类 0 在任何取向都落在类 0
+    for k in range(6):
+        assert sorted(plate_cells_on_board(P, 'B2', k)) == list(range(G.NU))
+        assert all(G.SUNK[v] for v in plate_cells_on_board(P, 'A1C', k))
+        c2 = plate_cells_on_board(P, 'A2C', k)
+        assert not any(G.SUNK[v] for v in c2) and len(c2) == 6
+    # 孪生场景 (板 D, k=2) 经帧 → 与模型整板预测一致
+    tw = _twin(Scenes.plate('D', 2, P, model_gap=Environment().gap))
+    bl = Baseline.from_frames([_twin(Scenes.no_rings()).step() for _ in range(2)], tw.env)
+    rec = plate_record_from_frames([tw.step() for _ in range(3)], tw.env, bl.L61, tw.model, P, 'D', 2)
+    sm = rec.summary()
+    assert sm['self_max'] < 0.05 and sm['edge_max'] < 0.02 and sm['absent_self_max'] < 0.01, sm
+    assert len(rec.units) == 8
+    # 偏移板 A2C: 偏移向量随取向旋转 (k=1 时 60°)
+    c0 = plate_cells_on_board(P, 'A2C', 0); c1 = plate_cells_on_board(P, 'A2C', 1)
+    off0 = [s for s in c0.values() if s['dx_mm'] or s['dy_mm']][0]
+    assert any(abs(np.hypot(s['dx_mm'], s['dy_mm']) - 0.5) < 1e-6 for s in c1.values())

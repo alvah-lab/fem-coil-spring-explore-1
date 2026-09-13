@@ -10,6 +10,7 @@ level 1 (离线): 生成 62.5MSps 样本流并做与 FPGA 相同的 NCO 累加, 
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable
+import os
 import numpy as np
 from . import geometry as G
 from .fastmodel import FastModel, ModelConfig, obs_of
@@ -137,7 +138,46 @@ def obs_of_word(word: int) -> int | None:
         return None
     return OBS_INDEX.get(('self', d, d) if d == s else ('edge', min(d, s), max(d, s)))
 
+PLATES_PATH = os.path.join(os.path.dirname(__file__), 'data', 'plates_K18.json')
+
+
+def load_plates(path: str | None = None) -> dict:
+    """标定整板布局表 (scripts/calib_plates_cad.py 生成): 板号 → {desc, cells{板格: spec}}, _rotation_maps, _studs."""
+    import json
+    return json.load(open(path or PLATES_PATH))
+
+
+def plate_cells_on_board(plates: dict, code: str, k: int = 0) -> dict:
+    """板 code 以取向 k (逆时针 60k°) 装到板上后, 板上单元 v → spec (gap_mm, tilt_deg, tilt_dir_deg, dx_mm, dy_mm),
+    倾斜方位与偏移向量随板一起旋转."""
+    rot = plates['_rotation_maps'][str(k % 6)]
+    a = np.radians(60 * (k % 6)); ca, sa = np.cos(a), np.sin(a)
+    out = {}
+    for u, sp in plates[code]['cells'].items():
+        v = int(rot[str(u)])
+        dx, dy = sp['dx_mm'], sp['dy_mm']
+        out[v] = dict(gap_mm=sp['gap_mm'], tilt_deg=sp['tilt_deg'], tilt_dir_deg=(sp['tilt_dir_deg'] + 60 * (k % 6)) % 360,
+                      dx_mm=ca * dx - sa * dy, dy_mm=sa * dx + ca * dy)
+    return out
+
+
+def plate_poses(cells_board: dict, model_gap: float):
+    """板上单元 spec → (poses (19,5), present (19,) bool)."""
+    poses = np.zeros((G.NU, 5)); present = np.zeros(G.NU, bool)
+    for v, sp in cells_board.items():
+        th = np.radians(sp['tilt_deg']); ph = np.radians(sp['tilt_dir_deg'])
+        poses[int(v)] = [sp['dx_mm'], sp['dy_mm'], sp['gap_mm'] - model_gap, th * np.cos(ph), th * np.sin(ph)]
+        present[int(v)] = True
+    return poses, present
+
+
 class Scenes:
+    @staticmethod
+    def plate(code: str, k: int = 0, plates: dict | None = None, model_gap: float = G.GAP_REST):
+        """标定整板 code 以取向 k 装上 (其余单元无环)."""
+        plates = plates or load_plates()
+        poses, present = plate_poses(plate_cells_on_board(plates, code, k), model_gap)
+        return Scene(f'plate_{code}_k{k}', lambda t: np.zeros(3 * G.NU), present=present, poses_of_t=lambda t: poses.copy())
     @staticmethod
     def rest():
         return Scene('rest', lambda t: np.zeros(3 * G.NU))

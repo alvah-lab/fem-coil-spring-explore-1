@@ -11,7 +11,7 @@ from dataclasses import dataclass, field, asdict
 import numpy as np
 from . import geometry as G
 from .twin import (decode_dwells, word_fields, obs_of_word, default_dwell_table, FLAG_SAT, FLAG_REF, FLAG_ISENSE,
-                   FLAG_LINK_TIMEOUT, FLAG_LINK_FAULT, Environment)
+                   FLAG_LINK_TIMEOUT, FLAG_LINK_FAULT, Environment, load_plates, plate_cells_on_board, plate_poses, obs_of)
 from .fastmodel import FastModel
 
 
@@ -221,3 +221,75 @@ class RunningStats:
 def single_dwell_table(drv: int, sns: int, pga: int, ref: int = 0, vna: int = 0) -> np.ndarray:
     from .twin import dwell_word
     return np.array([dwell_word(drv, sns, pga, ref, vna)], np.uint16)
+
+
+# ---------------- 标定整板 (N=8, 转位复用) ----------------
+
+def plate_expected(model: FastModel, cells_board: dict) -> np.ndarray:
+    """整板模型预测: 61 观测 ΔL (nH, 相对模型载波); 在位环按 spec 位姿, 缺席环 R→∞."""
+    poses, present = plate_poses(cells_board, model.cfg.gap)
+    poses, _ = G.clamp_pose(poses, model.cfg.gap)
+    Rr = np.where(present, model.ring.R, 1e12)
+    Z = model.fold(*model.blocks(poses), Rr, None)
+    return (np.imag(obs_of(Z)) - np.imag(model.carrier_Z())) / model.w * 1e9
+
+
+@dataclass
+class PlateRecord:
+    code: str
+    k: int
+    n_frames: int
+    dL_meas: np.ndarray        # (61,) 实测 ΔL 相对基线 nH
+    dL_model: np.ndarray       # (61,) 模型 ΔL 相对模型载波 nH
+    sigma: np.ndarray          # (61,) 帧间 σ_L nH
+    units: list                # 在位单元 (板上编号)
+    note: str = ''
+    when: str = field(default_factory=lambda: time.strftime('%Y-%m-%d %H:%M:%S'))
+
+    def summary(self) -> dict:
+        d = self.dL_meas - self.dL_model
+        us = np.array(self.units, int)
+        pres_self = np.zeros(G.NU, bool); pres_self[us] = True
+        edges_on = np.array([k == 'edge' and (pres_self[i] or pres_self[j]) for k, i, j in G.OBS])
+        out = dict(self_rms=float(np.sqrt(np.mean(d[:G.NU][pres_self] ** 2))) if pres_self.any() else 0.0,
+                   self_max=float(np.abs(d[:G.NU][pres_self]).max()) if pres_self.any() else 0.0,
+                   self_ratio=float(np.median(self.dL_meas[:G.NU][pres_self] / self.dL_model[:G.NU][pres_self])) if pres_self.any() else float('nan'),
+                   edge_rms=float(np.sqrt(np.mean(d[edges_on] ** 2))) if edges_on.any() else 0.0,
+                   edge_max=float(np.abs(d[edges_on]).max()) if edges_on.any() else 0.0,
+                   absent_self_max=float(np.abs(d[:G.NU][~pres_self]).max()) if (~pres_self).any() else 0.0)   # 无环单元残差 (邻环耦合进自观测是物理的, 模型已含)
+        return out
+
+
+def plate_record_from_frames(frames, env: Environment, baseline_L61: np.ndarray, model: FastModel, plates: dict,
+                             code: str, k: int, note: str = '') -> PlateRecord:
+    w = 2 * np.pi * env.f0
+    Ls = []
+    for fr in frames:
+        z, _ = obs61_from_frame(fr, env)
+        if z is not None:
+            Ls.append(np.imag(z) / w * 1e9)
+    if not Ls:
+        raise ValueError('no default-table frames')
+    Ls = np.array(Ls)
+    cells = plate_cells_on_board(plates, code, k)
+    return PlateRecord(code, k, len(Ls), Ls.mean(axis=0) - baseline_L61, plate_expected(model, cells),
+                       Ls.std(axis=0) if len(Ls) > 1 else np.zeros(G.NOBS), sorted(int(v) for v in cells), note)
+
+
+class PlateLog:
+    def __init__(self):
+        self.records: list[PlateRecord] = []
+
+    def save_csv(self, path: str):
+        with open(path, 'w', newline='') as f:
+            wr = csv.writer(f)
+            wr.writerow(['when', 'plate', 'k', 'n_frames', 'obs', 'kind', 'i', 'j', 'dL_meas_nH', 'dL_model_nH', 'diff_nH', 'sigma_nH', 'note'])
+            for r in self.records:
+                for n, (kind, i, j) in enumerate(G.OBS):
+                    wr.writerow([r.when, r.code, r.k, r.n_frames, n, kind, i, j, f'{r.dL_meas[n]:.5f}', f'{r.dL_model[n]:.5f}',
+                                 f'{r.dL_meas[n] - r.dL_model[n]:.5f}', f'{r.sigma[n]:.5f}', r.note])
+
+    def save_json(self, path: str):
+        json.dump([dict(code=r.code, k=r.k, n_frames=r.n_frames, when=r.when, note=r.note, units=r.units,
+                        dL_meas_nH=r.dL_meas.tolist(), dL_model_nH=r.dL_model.tolist(), sigma_nH=r.sigma.tolist(), summary=r.summary())
+                   for r in self.records], open(path, 'w'), ensure_ascii=False, indent=1)

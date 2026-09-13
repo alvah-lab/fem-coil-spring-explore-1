@@ -13,8 +13,9 @@ from PyQt6.QtWidgets import (QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QFor
 import pyqtgraph as pg
 from .. import geometry as G
 from .. import protocol as P
-from ..twin import default_dwell_table, dwell_word, Scenes, word_fields
-from ..bringup import frame_to_Z, obs61_from_frame, Baseline, CalibLog, RunningStats, model_shim, single_dwell_table
+from ..twin import default_dwell_table, dwell_word, Scenes, word_fields, load_plates, plate_cells_on_board
+from ..bringup import (frame_to_Z, obs61_from_frame, Baseline, CalibLog, RunningStats, model_shim, single_dwell_table,
+                       plate_expected, plate_record_from_frames, PlateLog)
 
 REGS_SHOW = ['DEVICE_ID', 'FW_ID', 'STATUS', 'LINK_STATUS', 'ERR_CNT', 'FRAME_CTRL', 'FRAME_ID', 'N_DWELL', 'DWELL_NSAMP',
              'BLANK_NSAMP', 'DRIVE_AMP', 'RF_EN']
@@ -48,6 +49,7 @@ class BringupPanel(QWidget):
         self.w = 2 * np.pi * self.env.f0
         self.baseline: Baseline | None = None
         self.calib = CalibLog()
+        self.plates = load_plates(); self.plate_log = PlateLog()
         self.stats = RunningStats(200)
         self._collect = None          # (n_wanted, frames, callback)
         self.last_frame = None
@@ -56,7 +58,7 @@ class BringupPanel(QWidget):
         self._last_draw = 0.0
         lay = QVBoxLayout(self); lay.setContentsMargins(2, 2, 2, 2)
         self.tabs = QTabWidget(); lay.addWidget(self.tabs)
-        self._build_status(); self._build_single(); self._build_baseline(); self._build_scan(); self._build_calib(); self._build_noise()
+        self._build_status(); self._build_single(); self._build_baseline(); self._build_scan(); self._build_calib(); self._build_plate(); self._build_noise()
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.start(500)
 
     # ---------- 数据入口 ----------
@@ -343,7 +345,83 @@ class BringupPanel(QWidget):
         if path:
             self.calib.save_csv(path); self.calib.save_json(path.rsplit('.', 1)[0] + '.json'); self.calib_info.setText(f'已保存 {path}')
 
-    # ---------- 6 噪声 ----------
+    # ---------- 6 整板 (N=8 标定板, 转位复用) ----------
+    def _build_plate(self):
+        w = QWidget(); v = QVBoxLayout(w); f = QFormLayout()
+        codes = [c for c in self.plates if not c.startswith('_')]
+        self.p_code = QComboBox(); self.p_code.addItems(codes); self.p_code.currentTextChanged.connect(self._plate_info); f.addRow('板号', self.p_code)
+        self.p_k = QSpinBox(); self.p_k.setRange(0, 5); self.p_k.valueChanged.connect(self._plate_info); f.addRow('取向 k (逆时针 60k°, 方向标指向 +x 为 0)', self.p_k)
+        self.p_n = QSpinBox(); self.p_n.setRange(1, 5000); self.p_n.setValue(100); f.addRow('帧数', self.p_n)
+        self.p_note = QLineEdit(); f.addRow('备注', self.p_note)
+        v.addLayout(f)
+        self.plate_desc = QLabel('—'); self.plate_desc.setWordWrap(True); v.addWidget(self.plate_desc)
+        hb = QHBoxLayout()
+        b = QPushButton('记录整板'); b.clicked.connect(self.record_plate); hb.addWidget(b)
+        b2 = QPushButton('模型预测'); b2.clicked.connect(self.predict_plate); hb.addWidget(b2)
+        b3 = QPushButton('保存 CSV+JSON…'); b3.clicked.connect(self.save_plates); hb.addWidget(b3)
+        b4 = QPushButton('孪生: 装上此板'); b4.clicked.connect(self.twin_plate); hb.addWidget(b4)
+        v.addLayout(hb)
+        self.plate_info = QLabel('—'); self.plate_info.setWordWrap(True); v.addWidget(self.plate_info)
+        self.plate_table = QTableWidget(G.NOBS, 6); self.plate_table.setHorizontalHeaderLabels(['观测', '类型', 'ΔL 实测 nH', 'ΔL 模型 nH', '差 nH', 'σ nH'])
+        v.addWidget(self.plate_table)
+        self.tabs.addTab(w, '整板')
+        self._plate_info()
+
+    def _plate_info(self, *_):
+        code = self.p_code.currentText(); k = self.p_k.value()
+        cells = plate_cells_on_board(self.plates, code, k)
+        units = sorted(cells)
+        detail = ' '.join(f'{v}:{s["gap_mm"]:g}' + (f'/{s["tilt_deg"]:g}°@{s["tilt_dir_deg"]:g}' if s['tilt_deg'] else '') +
+                          (f'/x{s["dx_mm"]:+.2f},y{s["dy_mm"]:+.2f}' if (s['dx_mm'] or s['dy_mm']) else '') for v, s in sorted(cells.items()))
+        self.plate_desc.setText(f'{code}: {self.plates[code]["desc"]}\n取向 k={k} → 板上在位单元 {units}\n{detail}')
+
+    def _fill_plate_table(self, dL_meas, dL_model, sigma):
+        for n, (kind, i, j) in enumerate(G.OBS):
+            vals = [f'{n}', f'{kind} {i}' + (f'-{j}' if kind == 'edge' else ''),
+                    '—' if dL_meas is None else f'{dL_meas[n]:+.4f}', f'{dL_model[n]:+.4f}',
+                    '—' if dL_meas is None else f'{dL_meas[n] - dL_model[n]:+.4f}', '—' if sigma is None else f'{sigma[n]:.4f}']
+            for c, t in enumerate(vals):
+                self.plate_table.setItem(n, c, QTableWidgetItem(t))
+
+    def predict_plate(self):
+        cells = plate_cells_on_board(self.plates, self.p_code.currentText(), self.p_k.value())
+        dL = plate_expected(self.model, cells)
+        self._fill_plate_table(None, dL, None)
+        us = sorted(cells)
+        self.plate_info.setText('模型: 自反射 ' + ' '.join(f'{u}:{dL[u]:+.2f}' for u in us) + ' nH')
+
+    def twin_plate(self):
+        src = self.get_source()
+        if src is None or not hasattr(src, 'set_scene'):
+            self.plate_info.setText('当前数据源不是孪生'); return
+        sc = Scenes.plate(self.p_code.currentText(), self.p_k.value(), self.plates, model_gap=self.env.gap)
+        src.set_scene(sc); self.scan_ema = None; self.stats = RunningStats(self.n_win.value())
+        self.plate_info.setText(f'孪生场景 → {sc.name}')
+
+    def record_plate(self):
+        if self.baseline is None:
+            self.plate_info.setText('先采集/载入无环基线 (基线页)'); return
+        self._send('dwell_table', default_dwell_table())
+        code, k, note = self.p_code.currentText(), self.p_k.value(), self.p_note.text()
+        def done(frames):
+            rec = plate_record_from_frames(frames, self.env, self.baseline.L61, self.model, self.plates, code, k, note)
+            self.plate_log.records.append(rec)
+            self._fill_plate_table(rec.dL_meas, rec.dL_model, rec.sigma)
+            sm = rec.summary()
+            self.plate_info.setText(f'记录 {len(self.plate_log.records)}: {code} k={k} {rec.n_frames} 帧 — 自反射 实测/模型 中位比 {sm["self_ratio"]:.4f}, '
+                                    f'差 rms {sm["self_rms"]:.3f} / max {sm["self_max"]:.3f} nH; 边 差 rms {sm["edge_rms"]:.4f} / max {sm["edge_max"]:.4f} nH; '
+                                    f'无环单元自观测残差 max {sm["absent_self_max"]:.3f} nH')
+        self._collect_frames(self.p_n.value(), done)
+        self.plate_info.setText('采集中…')
+
+    def save_plates(self):
+        if not self.plate_log.records:
+            self.plate_info.setText('还没有记录'); return
+        path = _save_dialog(self, '保存整板记录', 'plates_calib.csv', '*.csv')
+        if path:
+            self.plate_log.save_csv(path); self.plate_log.save_json(path.rsplit('.', 1)[0] + '.json'); self.plate_info.setText(f'已保存 {path}')
+
+    # ---------- 7 噪声 ----------
     def _build_noise(self):
         w = QWidget(); v = QVBoxLayout(w); hb = QHBoxLayout()
         hb.addWidget(QLabel('窗口 (帧)')); self.n_win = QSpinBox(); self.n_win.setRange(10, 5000); self.n_win.setValue(200); hb.addWidget(self.n_win)
@@ -358,7 +436,7 @@ class BringupPanel(QWidget):
     def _tick(self):
         if self.auto_refresh.isChecked() and self.tabs.currentIndex() == 0:
             self.refresh_regs()
-        if self.tabs.currentIndex() == 5:
+        if self.tabs.currentIndex() == 6:
             st = self.stats
             sig = st.sigma_L61()
             txt = f'帧率 {st.fps():.1f} Hz  帧数 {st.n_frames}  丢帧 {st.n_gap}  饱和驻留 {st.n_sat}  链路超时 {st.n_timeout}  FAULT {st.n_fault}'

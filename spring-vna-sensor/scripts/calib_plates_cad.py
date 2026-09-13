@@ -195,6 +195,8 @@ def write_json(layouts):
     d['_rotation_maps'] = {str(k): {str(u): v for u, v in m.items()} for k, m in rotation_maps().items()}
     d['_studs'] = dict(board_refs=['HLOC2', 'HLOC5'], host_xy=STUDS, note='M2 螺钉从板背面穿出; 板取向 k = 逆时针转 60k°, 方向标指向 +x 为 k=0')
     json.dump(d, open(os.path.join(OUT, 'plates.json'), 'w'), ensure_ascii=False, indent=1)
+    host_copy = os.path.join(HERE, '..', 'host', 'honeycomb_host', 'data', 'plates_K18.json')   # 主机 GUI 整板模式读取
+    json.dump(d, open(host_copy, 'w'), ensure_ascii=False, indent=1)
     rows = ['| 板 | 环数 | 布局 |', '|---|---|---|']
     for code, L in layouts.items():
         rows.append(f'| {code} | {len(L["cells"])} | {L["desc"]} |')
