@@ -34,6 +34,8 @@ class DiagView(QWidget):
                 e = tr.q - res.truth.q
                 txt.append(f'真值误差: w max {np.abs(e[:G.NU]).max()*1e3:6.2f}µm  面内 max {np.abs(e[G.NU:]).max()*1e3:6.2f}µm  '
                            f'真值中心 w {res.truth.q[G.CI]*1e3:+7.1f}µm')
+        if getattr(res, 'no_rings', False):
+            txt.append('无环签名 (自观测 |ΔL| < 3 nH): 跟踪器暂停, 位姿保持 0 — 基线/单驻留/单元扫描仍正常')
         if extra:
             txt.append(extra)
         self.lbl.setText('\n'.join(txt))

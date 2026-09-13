@@ -32,6 +32,7 @@ class FrameResult:
     truth: object = None
     fps: float = 0.0
     seq_gap: int = 0
+    no_rings: bool = False         # 无环签名 (跟踪器暂停)
 
 class Pipeline:
     def __init__(self, env: Environment, model: FastModel | None = None, tracker_cfg: TrackerConfig | None = None,
@@ -45,6 +46,8 @@ class Pipeline:
         self.tracker = Tracker(self.model, tracker_cfg) if track else None
         self.carrier_L = self.model.carrier_L()
         self.q_ring0 = None
+        self.no_ring_nH = 3.0          # 自观测反射最大 |ΔL| 低于此值 → 无环签名, 跟踪器暂停 (有环静息 ≥ 7.6 nH)
+        self.no_rings = False
         self._last_seq = None
         self._t_last = None
         self.fps = 0.0
@@ -91,7 +94,14 @@ class Pipeline:
         dRe = (ratio - self.q_ring0) * np.abs(L[:G.NU]) * 1e-9 * self.w
         denom = np.maximum(np.abs(refl[:G.NU]) * 1e-9 * self.w / Qr * self.env.alpha_cu, 1e-12)
         dT = dRe / denom
-        tr = self.tracker.update(L) if self.tracker is not None else None
+        self.no_rings = bool(np.abs(refl[:G.NU]).max() < self.no_ring_nH)
+        if self.tracker is not None and self.no_rings:
+            # 没有环就没有可拟合的位姿: 保持零位姿, 不让跟踪器在发散/复位之间振荡 (只在进入无环态时复位一次)
+            if np.any(self.tracker.q != 0):
+                self.tracker.reset()
+            tr = None
+        else:
+            tr = self.tracker.update(L) if self.tracker is not None else None
         gap = 0
         if self._last_seq is not None:
             gap = (fr.seq - self._last_seq - 1) & 0xFFFF      # u16 回绕
@@ -102,4 +112,4 @@ class Pipeline:
             if self._t_last is not None and wall_t > self._t_last:
                 self.fps = 0.9 * self.fps + 0.1 / (wall_t - self._t_last)
             self._t_last = wall_t
-        return FrameResult(fr.seq, fr.t_ticks / self.env.fs, Z, L, refl, R, dT, sat, c.link_gain, tr, fr.truth, self.fps, gap)
+        return FrameResult(fr.seq, fr.t_ticks / self.env.fs, Z, L, refl, R, dT, sat, c.link_gain, tr, fr.truth, self.fps, gap, no_rings=self.no_rings)

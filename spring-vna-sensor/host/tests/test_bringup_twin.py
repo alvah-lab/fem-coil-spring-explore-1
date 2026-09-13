@@ -96,3 +96,18 @@ def test_pipeline_rejects_short_table_and_baseline():
     assert np.allclose(res1.refl_nH, res0.refl_nH, atol=5e-3)   # 基线来自量化后的帧, 与模型载波差 ~1e-3 nH
     d = bl.to_dict(); bl2 = Baseline.from_dict(d)
     assert np.allclose(bl2.L61, bl.L61)
+
+
+def test_no_rings_pauses_tracker():
+    """无环帧: 跟踪器暂停 (track=None, 只复位一次), 有环后恢复."""
+    tw = _twin()
+    pipe = Pipeline(tw.env, model=tw.model)
+    for _ in range(2):
+        pipe.process(tw.step())
+    tw.scene = Scenes.no_rings(); tw.t = 0
+    res = [pipe.process(tw.step()) for _ in range(4)]
+    assert all(r.no_rings and r.track is None for r in res)
+    assert pipe.tracker.n_reset == 1 and np.all(pipe.tracker.q == 0)
+    tw.scene = Scenes.rest(); tw.t = 0
+    r = pipe.process(tw.step())
+    assert not r.no_rings and r.track is not None
