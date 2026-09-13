@@ -4,10 +4,10 @@
 用 coil-5 的 .venv 跑:  /work/alvah-labs/spiral-coil/coil-5/.venv/bin/python3 scripts/calib_fixture_cad.py [--frame-only|--tiles-only]
 
 设计要点
-- 六边形片: 对边 AF = PITCH − 2·CLR, 实心块, 顶面开环形凹槽放 Ø5.0/Ø3.0×0.2 铜环 (环在片顶, 片底贴 PCB 阻焊面)。
+- 六边形片: 对边 AF = PITCH − 2·CLR, 实心块, 顶面平整 + 中心 Ø2.94×0.2 凸柱卡住 Ø5.0/Ø3.0×0.2 铜环的内孔 (环在片顶, 片底贴 PCB 阻焊面)。
   间隙 (环质心 → L1 铜面) = 片高 H + T_RING/2 + T_MASK  →  H = gap − 0.13。
-- 倾斜片: 顶面绕片心倾斜 θ (方位 φ), 环质心仍在片心正上方 gap 处; 高侧边上有 V 形缺口标方向。
-- 偏移片: 凹槽中心偏移 (dx, dy)。
+- 倾斜片: 顶面绕片心倾斜 θ (方位 φ), 凸柱沿顶面法向, 环质心仍在片心正上方 gap 处; 高侧边上有 V 形缺口标方向。
+- 偏移片: 凸柱中心偏移 (dx, dy)。
 - 底面刻字 "gap/θ" (贴板一侧, 读数时翻过来看)。
 - 外框: 19 格蜂窝外轮廓 (AF+2·CLR_FRAME) 的一圈围墙, 用板上 Ø2.2 定位孔 (尼龙 M2) 定位, 围墙内侧净空
   避开阵列周边元件 (HMC544A / 0402)。
@@ -28,8 +28,7 @@ AF = PITCH - 2 * CLR_TILE   # 5.05 对边
 R_HEX = AF / math.sqrt(3)   # 2.916 外接圆半径
 R_RING_O, R_RING_I, T_RING = 2.5, 1.5, 0.2
 T_MASK = 0.03               # 阻焊 + 铜面到片底
-R_RECESS_O, R_RECESS_I = 2.53, 1.47   # 凹槽比环大 0.03 单边; 2.53 > AF/2=2.525 → 六个平边处露 0.005 (可忽略)
-D_RECESS = T_RING
+R_BOSS = 1.47               # 中心凸柱半径: 环内孔 Ø3.0 − 0.06 配合; 环外区域为平面
 GAPS = (1.0, 1.35, 1.75, 2.0, 2.53)
 TILTS = (0.0, 2.0, 5.0)
 OFFSETS = (0.0, 0.5)
@@ -63,33 +62,28 @@ def annulus(ro, ri, t):
 
 
 def tile(gap=1.75, tilt_deg=0.0, tilt_dir_deg=0.0, dx=0.0, dy=0.0, ring=True, label=None):
-    """一片: 实心六棱柱, 顶面(可倾斜)开环槽, 底面刻字, 倾斜高侧 V 缺口."""
-    H = gap - T_RING / 2 - T_MASK                     # 片心处环槽底面高度
+    """一片: 实心六棱柱, 顶面(可倾斜)平整, 只留中心凸柱 (Ø2·R_BOSS × T_RING) 卡住环的内孔; 底面刻字, 倾斜高侧 V 缺口."""
+    H = gap - T_RING / 2 - T_MASK                     # 片心处顶面高度 = 环底面高度
     th = math.radians(tilt_deg); ph = math.radians(tilt_dir_deg)
+    axis = (-math.sin(ph), math.cos(ph), 0)           # 倾斜轴 (过片心, 垂直于方位)
     Hmax = H + R_HEX * math.tan(th) + 0.3
-    body = hex_prism(Hmax + D_RECESS)
-    # 顶面: 过 (0,0,H+D_RECESS) 法向 n 的平面以上切掉 (环槽底在 H, 槽深 D_RECESS → 顶面在 H+D_RECESS)
-    n = np.array([-math.sin(th) * math.cos(ph), -math.sin(th) * math.sin(ph), math.cos(th)])
-    cutter = (cq.Workplane('XY').rect(20, 20).extrude(10)
-              .rotate((0, 0, 0), (-math.sin(ph), math.cos(ph), 0), math.degrees(th))
-              .translate((0, 0, H + D_RECESS)))
+    body = hex_prism(Hmax)
+    cutter = (cq.Workplane('XY').rect(20, 20).extrude(10).rotate((0, 0, 0), axis, math.degrees(th)).translate((0, 0, H)))
     body = body.cut(cutter)
     if ring:
-        rec = (annulus(R_RECESS_O, R_RECESS_I, D_RECESS + 1.0)
-               .rotate((0, 0, 0), (-math.sin(ph), math.cos(ph), 0), math.degrees(th))
-               .translate((dx, dy, H)))
-        body = body.cut(rec)
+        boss = (cq.Workplane('XY').circle(R_BOSS).extrude(T_RING).rotate((0, 0, 0), axis, math.degrees(th))
+                .translate((dx, dy, H)))
+        body = body.union(boss)
     # 倾斜方向: 高侧平边中点上开 V 缺口 (顶面)
     if tilt_deg > 0:
         notch = (cq.Workplane('XY').polyline([(-0.5, 0), (0.5, 0), (0, -0.6)]).close().extrude(5)
-                 .translate((0, AF / 2 + 0.01, H - 0.4))
+                 .translate((0, AF / 2 + 0.01, H - 0.6))
                  .rotate((0, 0, 0), (0, 0, 1), tilt_dir_deg - 90))
         body = body.cut(notch)
     # 底面刻字 (深 0.25, 镜像使从底部看正向)
     txt = label or (f'{gap:g}' + (f'/{tilt_deg:g}' if tilt_deg else '') + (f'/x{dx:g}' if dx else '') + ('' if ring else 'B'))
     try:
         t = cq.Workplane('XY').text(txt, 1.1, 0.25, combine=False, halign='center', valign='center')
-        # 字从 z=0 向 +z 刻进片底 0.25; 从底部看 (绕 y 翻转) 时字要正向 → 先绕 YZ 镜像一次
         t = t.mirror('YZ')
         body = body.cut(t)
     except Exception as e:      # 字体缺失时跳过刻字
@@ -133,6 +127,34 @@ def export(wp, name, stl=True):
     print(f'{name:28s} {bb.xlen:6.2f} x {bb.ylen:6.2f} x {bb.zlen:5.2f} mm')
 
 
+def ring_solid(cx, cy, z, tilt_deg=0.0, tilt_dir_deg=0.0):
+    th = math.radians(tilt_deg); ph = math.radians(tilt_dir_deg)
+    return (annulus(R_RING_O, R_RING_I, T_RING).rotate((0, 0, 0), (-math.sin(ph), math.cos(ph), 0), math.degrees(th))
+            .translate((cx, cy, z)))
+
+
+def overview(layout=None):
+    """装配总览: PCB 片段 (带 6 孔、19 个线圈示意圆环) + 外框 (销入孔) + 19 片 + 铜环. layout: {unit: dict(tile kwargs)}."""
+    if layout is None:
+        layout = {9: dict(gap=1.75, tilt_deg=5, tilt_dir_deg=0)}
+        for k, u in enumerate(G.ADJ[9]):
+            layout[u] = dict(gap=GAPS[k % len(GAPS)])
+    pcb = cq.Workplane('XY').rect(40, 36).extrude(-1.0)
+    for (hx, hy, d) in HOLES:
+        pcb = pcb.cut(cq.Workplane('XY').circle(d / 2).extrude(-1.0).translate((hx, hy, 0)))
+    for x, y in XY:      # 线圈示意: 阻焊面上 0.02 的浅环
+        pcb = pcb.union(annulus(2.4555, 0.37, 0.02).translate((x, y, 0)))
+    parts = [pcb.val(), frame().val()]
+    for i, (x, y) in enumerate(XY):
+        kw = layout.get(i, dict(gap=1.75, ring=False))
+        t = tile(**kw).translate((x, y, 0))
+        parts.append(t.val())
+        if kw.get('ring', True):
+            H = kw.get('gap', 1.75) - T_RING / 2 - T_MASK
+            parts.append(ring_solid(x + kw.get('dx', 0.0), y + kw.get('dy', 0.0), H, kw.get('tilt_deg', 0.0), kw.get('tilt_dir_deg', 0.0)).val())
+    return cq.Workplane('XY').newObject([cq.Compound.makeCompound(parts)])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--tiles-only', action='store_true'); ap.add_argument('--frame-only', action='store_true')
@@ -153,10 +175,8 @@ def main():
             asm = t if asm is None else asm.union(t)
         export(asm, 'assembly_tiles', stl=False)
     if not a.tiles_only:
-        if HOLES:
-            export(frame(), 'frame_19')
-        else:
-            print('HOLES empty: frame skipped (fill from K18 PCB first)')
+        export(frame(), 'frame_19')
+        export(overview(), 'assembly_overview')
 
 
 if __name__ == '__main__':
