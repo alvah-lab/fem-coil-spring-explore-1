@@ -32,9 +32,9 @@ def cut_polys(wp, normal, off):
     return out
 code = sys.argv[1]
 L = P.build_layouts(); lay = L[code]
-u_sec = int(sys.argv[2]) if sys.argv[2] != 'tilt' else next(u for u, s in lay['cells'].items() if s['tilt'] > 0)
+u_sec = int(sys.argv[2]) if sys.argv[2] not in ('tilt', 'hole') else (next(u for u, s in lay['cells'].items() if s['tilt'] > 0) if sys.argv[2] == 'tilt' else -1)
 pl = P.plate(code, lay); cl, z_b, z_t = P.clamp(code, lay); rg = rings_for(lay)
-ysec = P.XY[u_sec][1]
+ysec = P.XY[u_sec][1] if u_sec >= 0 else P.HOLES[0][1]
 fig, ax = plt.subplots(2, 1, figsize=(16, 9))
 for wp, col, lab in ((pl, 'k', '板'), (cl, 'tab:blue', '压板'), (rg, 'tab:red', '铜环')):
     if wp is None: continue
