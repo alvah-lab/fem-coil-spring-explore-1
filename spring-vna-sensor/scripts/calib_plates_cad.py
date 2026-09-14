@@ -10,7 +10,7 @@
 - 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); −y 侧刻板号.
 - 板底 z=0 整面贴 PCB 阻焊面. 每个有环格在环座平面以上切一圈 Ø(5.0+0.4) 的余隙 (穿过更高的邻格/围框), 保证偏移/倾斜的环也放得进去.
 - 压板 (clamp_<code>): 与该板互补, 同外形、同 12 孔; 每个有环格一个 Ø3.5/Ø4.8 环形压脚落在环顶面 (倾斜格压脚同样倾斜, 偏移格压脚同样偏移),
-  压脚中心留 Ø3.5×1.1 锥尖避空; 围框脚比围框顶高 0.1 (先压环, 再顶围框). 板厚 4.0. 顶面刻 C+板号, +x 三角方向标.
+  压脚实心, 端面中心为与凸柱锥互补的 30° 锥形凹 (Ø3.5, 深 1.01); 围框脚比围框顶高 0.1 (先压环, 再顶围框). 板厚 4.0. 顶面刻 C+板号, +x 三角方向标.
 - 打印 (SLA/MSLA): 板 = 平放, 板底直接贴平台 (无支撑, 顶面全部朝上, 无悬空, 孔垂直); 压板 = 顶面贴平台, 压脚朝上. 贴平台面的孔口有 0.3 倒角抵消大象脚.
   层高取 0.02 mm (所有环座高 1.22/1.62/2.40、围框 2.0、平台 0.8 都是整数层).
 """
@@ -38,7 +38,7 @@ CH_LETTER = 0.05
 CLR_RING = 0.2                    # 环外沿到任何更高结构 (邻格/围框) 的余隙
 CH_FOOT = 0.3                     # 贴打印平台那一面的孔口倒角 (大象脚)
 T_CLAMP, CLR_TOP, CLR_RIM = 4.0, 0.5, 0.1   # 压板厚; 压板体底面离最高环顶/围框顶; 围框脚离围框顶
-R_PAD_O, R_PAD_I, D_POCKET = 2.4, 1.75, 1.1  # 压脚环 外/内半径 (环 2.5/1.5, 凸柱 1.47); 锥尖避空深 (锥高 0.85)
+R_PAD_O, R_PAD_I = 2.4, 1.75              # 压脚: 实心 Ø4.8 圆柱, 端面中心开与凸柱锥互补的 30° 锥形凹 (面上 Ø3.5, 深 1.01; 凸柱锥 Ø2.94 高 0.85, 径向余隙 0.28, 顶余隙 0.16)
 # 定位: 板背面从 HLOC2 (60.02,27.08) 与 HLOC5 (59.47,52.57) 伸出两颗 M2 螺钉 (相隔 160°), 整板绕阵列中心按 60° 转位复用;
 # 板上开这两点各自 6 个旋转像共 12 个通孔 (Ø2.15, 相互 ≥4.5 mm). 六个 HLOC 本身不是 60° 对称, 不能六颗都用.
 STUDS = [(60.02 - 62.0, -(27.08 - 40.0)), (59.47 - 62.0, -(52.57 - 40.0))]
@@ -223,15 +223,16 @@ def clamp(code, layout):
         pad = cq.Workplane('XY').circle(R_PAD_O).extrude(z_b + 0.5 - (H - 0.5)).translate((x + s['dx'], y + s['dy'], H - 0.5))
         below = cq.Workplane('XY').rect(20, 20).extrude(-10).rotate((0, 0, 0), axis, deg).translate((x, y, H + T_RING))
         body = body.union(pad.cut(below))
-    for u, s in cells.items():   # 锥尖避空: 并入压脚后再挖, 使避空穿进板体
+    for u, s in cells.items():   # 锥形互补凹: 并入压脚后再挖 (实心压脚, 无薄环壁)
         x, y = XY[u]; H = seat_h(s); deg, axis = tilt_axis(s)
-        pocket = (cq.Workplane('XY').circle(R_PAD_I).extrude(D_POCKET + 0.5).translate((0, 0, -0.5))
-                  .rotate((0, 0, 0), axis, deg).translate((x + s['dx'], y + s['dy'], H + T_RING)))
-        body = body.cut(pocket)
+        t30 = math.tan(math.radians(A_CONE)); ext = 0.3
+        r0 = R_PAD_I + ext / t30
+        cone = cq.Workplane('XY').add(cq.Solid.makeCone(r0, 0.0, r0 * t30, cq.Vector(0, 0, -ext), cq.Vector(0, 0, 1)))
+        body = body.cut(cone.rotate((0, 0, 0), axis, deg).translate((x + s['dx'], y + s['dy'], H + T_RING)))
     for (hx, hy) in HOLES:
         body = body.cut(hole_cutter(hx, hy, z_t, -1))
     body = body.union(marker(z_b, T_CLAMP))
-    body = engrave(body, 'C' + code, z_t, 2.2, 0.4, 0.0, 0.0, Y_LAB, (4.0, 1.4))
+    body = engrave(body, 'C' + code, z_t, 2.2, 0.5, 0.0, 0.0, Y_LAB, (4.0, 1.4))
     assert len(body.solids().vals()) == 1, f'{code}: clamp is not a single solid'
     return body, z_b, z_t
 
@@ -289,7 +290,7 @@ def write_json(layouts):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--only', default=None); ap.add_argument('--json-only', action='store_true')
-    ap.add_argument('--no-clamp', action='store_true')
+    ap.add_argument('--no-clamp', action='store_true'); ap.add_argument('--clamp-only', action='store_true')
     a = ap.parse_args()
     layouts = build_layouts()
     table = write_json(layouts)
@@ -299,7 +300,8 @@ def main():
     for code, L in layouts.items():
         if a.only and code not in a.only.split(','):
             continue
-        export(plate(code, L), f'plate_{code}')
+        if not a.clamp_only:
+            export(plate(code, L), f'plate_{code}')
         if not a.no_clamp:
             c, z_b, z_t = clamp(code, L)
             print(f'  clamp {code}: 体底面 z={z_b:.2f}, 顶面 z={z_t:.2f} (装配坐标, 板底=0)')
