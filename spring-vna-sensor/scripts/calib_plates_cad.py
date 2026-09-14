@@ -12,7 +12,7 @@
   带宽 ≤0.4 (有环格环座保平到 r≥2.2, 压脚接触带 Ø3.5–Ø4.4; 平台顶角不进定位孔锥口), 每圈取最小值以保证斜接精确. 倾斜格的脚线随倾斜面.
 - 定位孔 Ø2.2, 两面锥口 Ø2.8 各深 40% 厚度, 中间 20% 直段.
 - 板底 z=0 整面贴 PCB 阻焊面. 每个有环格在环座平面以上切一圈 Ø(5.0+0.4) 的余隙 (穿过更高的邻格/围框), 保证偏移/倾斜的环也放得进去.
-- 压板 (clamp_<code>): 与该板互补, 同外形、同 12 孔; 每个有环格一个 Ø3.5/Ø4.8 环形压脚落在环顶面 (倾斜格压脚同样倾斜, 偏移格压脚同样偏移),
+- 压板 (clamp_<code>): 与该板互补, 同外形、同 12 孔; 每个有环格一个火山形压脚 (环顶面 Ø4.4, 向板体 45° 放大, 相邻压脚坡面合并; 邻环更高时坡面避开邻环禁区) 落在环顶面 (倾斜格压脚同样倾斜, 偏移格压脚同样偏移),
   压脚实心, 端面中心为与凸柱锥互补的 30° 锥形凹 (Ø3.5, 深 1.01); 围框脚比围框顶高 0.1 (先压环, 再顶围框). 板厚 4.0. 顶面刻 C+板号, +x 三角方向标.
 - 打印 (SLA/MSLA): 板 = 平放, 板底直接贴平台 (无支撑, 顶面全部朝上, 无悬空, 孔垂直); 压板 = 顶面贴平台, 压脚朝上. 
   层高取 0.02 mm (所有环座高 1.22/1.62/2.40、围框 2.0、平台 0.8 都是整数层).
@@ -42,7 +42,7 @@ CLR_RING = 0.2                    # 环外沿到任何更高结构 (邻格/围�
 HOLE_MOUTH_D, HOLE_LAND = 2.5, 0.2   # 定位孔: 两面都开深锥口 (各 40% 厚度), 中间 20% 厚度留 Ø2.2 直段; 锥口 Ø2.5 (孔心离围框内沿 1.75, 平台顶倒角 ≤0.4 不进锥口)
 CAP_BAND = 0.4                    # 台阶倒角带宽上限: 有环格顶角保环座平到 r≥2.2; 平台顶角不进定位孔锥口
 T_CLAMP, CLR_TOP, CLR_RIM = 4.0, 0.5, 0.1   # 压板厚; 压板体底面离最高环顶/围框顶; 围框脚离围框顶
-R_PAD_O, R_PAD_I = 2.2, 1.75              # 压脚: 实心 Ø4.4 圆柱 (接触环带 Ø3.5–Ø4.4, 与倒角后环座 r≤2.2 的平面对应), 端面中心开与凸柱锥互补的 30° 锥形凹 (面上 Ø3.5, 深 1.01; 凸柱锥 Ø2.94 高 0.85, 径向余隙 0.28, 顶余隙 0.16)
+R_PAD_O, R_PAD_I = 2.2, 1.75              # 压脚: 火山形 (环顶面 Ø4.4, 向压板体 45° 放大), 接触环带 Ø3.5–Ø4.4 (与倒角后环座 r≤2.2 对应), 端面中心开与凸柱锥互补的 30° 锥形凹 (面上 Ø3.5, 深 1.01; 凸柱锥 Ø2.94 高 0.85, 径向余隙 0.28, 顶余隙 0.16)
 # 定位: 板背面从 HLOC2 (60.02,27.08) 与 HLOC5 (59.47,52.57) 伸出两颗 M2 螺钉 (相隔 160°), 整板绕阵列中心按 60° 转位复用;
 # 板上开这两点各自 6 个旋转像共 12 个通孔 (Ø2.15, 相互 ≥4.5 mm). 六个 HLOC 本身不是 60° 对称, 不能六颗都用.
 STUDS = [(60.02 - 62.0, -(27.08 - 40.0)), (59.47 - 62.0, -(52.57 - 40.0))]
@@ -412,11 +412,18 @@ def clamp(code, layout):
         x, y = XY[u]
         foot = foot.cut(cq.Workplane('XY').circle(R_RING_O + 0.3).extrude(seat_h(s) + T_RING + 0.3).translate((x + s['dx'], y + s['dy'], 0)))
     body = body.union(foot)
-    for u, s in cells.items():
+    ring_top = {u: seat_h(s) + T_RING for u, s in cells.items()}
+    for u, s in cells.items():   # 压脚 = 火山: 从环顶面的 Ø4.4 向压板体 45° 放大 (打印位姿下先爬坡), 端面中心再下锥形凹 (后挖)
         x, y = XY[u]; H = seat_h(s); deg, axis = tilt_axis(s)
-        pad = cq.Workplane('XY').circle(R_PAD_O).extrude(z_b + 0.5 - (H - 0.5)).translate((x + s['dx'], y + s['dy'], H - 0.5))
-        below = cq.Workplane('XY').rect(20, 20).extrude(-10).rotate((0, 0, 0), axis, deg).translate((x, y, H + T_RING))
-        body = body.union(pad.cut(below))
+        h = z_b + 0.5 - ring_top[u]
+        pad = cq.Workplane('XY').add(cq.Solid.makeCone(R_PAD_O - 0.5, R_PAD_O + h, h + 0.5, cq.Vector(0, 0, -0.5), cq.Vector(0, 0, 1)))
+        pad = pad.rotate((0, 0, 0), axis, deg).translate((x + s['dx'], y + s['dy'], ring_top[u]))
+        below = cq.Workplane('XY').rect(20, 20).extrude(-10).rotate((0, 0, 0), axis, deg).translate((x, y, ring_top[u]))
+        pad = pad.cut(below)
+        for v in G.ADJ[u]:   # 邻格环更高时, 本压脚的坡不得进入邻格 (六边形外扩 0.2, 含格角) 到邻环顶 +0.2 的禁区
+            if v in cells and ring_top[v] > ring_top[u] + 0.1:
+                pad = pad.cut(hex_prism(ring_top[v] + 0.2, R_CELL + 0.2 / math.cos(math.radians(30)), XY[v][0], XY[v][1]))
+        body = body.union(pad)
     for u, s in cells.items():   # 锥形互补凹: 并入压脚后再挖 (实心压脚, 无薄环壁)
         x, y = XY[u]; H = seat_h(s); deg, axis = tilt_axis(s)
         t30 = math.tan(math.radians(A_CONE)); ext = 0.3
