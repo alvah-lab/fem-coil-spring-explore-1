@@ -107,6 +107,8 @@ class Pipeline:
             self.present = cand.copy()
             if self.tracker is not None:
                 self.tracker.set_present(self.present)
+                # 部分放环 = 刚性标定板: 关掉柔性面先验 (相邻格阶差会被先验解释成不存在的倾斜)
+                self.tracker.set_rigid(not self.present.all())
         self.no_rings = not self.present.any()
         if self.tracker is not None and self.no_rings:
             # 没有环就没有可拟合的位姿: 保持零位姿, 不让跟踪器在发散/复位之间振荡 (只在进入无环态时复位一次)

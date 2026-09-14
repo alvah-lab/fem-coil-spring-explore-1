@@ -3,6 +3,7 @@ from __future__ import annotations
 import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import (QWidget, QFormLayout, QSlider, QLabel, QComboBox, QCheckBox, QHBoxLayout, QPushButton)
+from .. import sessionlog
 from ..twin import Scenes, _gauss_w
 from .. import geometry as G
 
@@ -41,6 +42,7 @@ class ScenePanel(QWidget):
         src = self.get_source()
         if src is None or not hasattr(src, 'set_scene'):
             return
+        sessionlog.emit('scene_preset', preset=self.preset.currentText())
         src.set_scene(getattr(Scenes, self.preset.currentText())())
     def apply(self):
         src = self.get_source()
@@ -52,6 +54,7 @@ class ScenePanel(QWidget):
             return np.concatenate([_gauss_w(x0, y0, d, s), np.full(G.NU, su), np.full(G.NU, sv)])
         dT_fn = (lambda t: _gauss_w(x0, y0, dT, s)) if dT > 0 else None
         from ..twin import Scene
+        sessionlog.emit('scene_manual', x0=x0, y0=y0, depth=d, sigma=s, su=su, sv=sv, dT=dT)
         src.set_scene(Scene('manual', q, dT_of_t=dT_fn))
     def apply_env(self):
         src = self.get_source()

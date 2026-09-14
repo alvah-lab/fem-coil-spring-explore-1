@@ -156,3 +156,38 @@ def test_plates_layout_and_prediction():
     c0 = plate_cells_on_board(P, 'A2C', 0); c1 = plate_cells_on_board(P, 'A2C', 1)
     off0 = [s for s in c0.values() if s['dx_mm'] or s['dy_mm']][0]
     assert any(abs(np.hypot(s['dx_mm'], s['dy_mm']) - 0.5) < 1e-6 for s in c1.values())
+
+
+def test_rigid_mode_on_stepped_plate():
+    """D 板 (相邻阶差对): 部分放环 → 刚性模式, 跟踪器无复位收敛到 ≤ 20 µm."""
+    from honeycomb_host.twin import load_plates
+    P = load_plates()
+    tw = _twin()
+    pipe = Pipeline(tw.env, model=tw.model)
+    for _ in range(3):
+        pipe.process(tw.step())
+    tw.scene = Scenes.plate('D', 3, P, model_gap=tw.env.gap); tw.t = 0
+    truth = tw.scene.poses_of_t(0)[:, 2]
+    for n in range(120):
+        res = pipe.process(tw.step())
+        if n == 40:
+            r40 = pipe.tracker.n_reset          # 切换去抖期间的复位可接受, 之后不得再复位
+    assert pipe.tracker.rigid and res.present.sum() == 8 and pipe.tracker.n_reset == r40
+    pres = np.where(res.present)[0]
+    assert np.abs(res.track.q[:G.NU][pres] - truth[pres]).max() < 0.02
+
+
+def test_session_logger_roundtrip(tmp_path):
+    from honeycomb_host.sessionlog import SessionLogger, emit, set_active
+    import json, os
+    tw = _twin(); pipe = Pipeline(tw.env, model=tw.model)
+    lg = SessionLogger(root=str(tmp_path), meta=dict(source='twin'))
+    set_active(lg); emit('unit_test', a=1, arr=np.arange(3))
+    for _ in range(3):
+        fr = tw.step(); lg.frame(pipe.process(fr), fr=fr)
+    set_active(None); d = lg.close()
+    ev = [json.loads(l) for l in open(os.path.join(d, 'events.jsonl'))]
+    fr_ = [json.loads(l) for l in open(os.path.join(d, 'frames.jsonl'))]
+    assert [e['name'] for e in ev] == ['log_start', 'unit_test', 'log_stop'] and ev[1]['arr'] == [0, 1, 2]
+    assert len(fr_) == 3 and len(fr_[0]['q']) == 57 and len(fr_[0]['refl']) == 61 and 'truth_q' in fr_[0]
+    assert os.path.exists(os.path.join(d, 'raw_frames.npz'))

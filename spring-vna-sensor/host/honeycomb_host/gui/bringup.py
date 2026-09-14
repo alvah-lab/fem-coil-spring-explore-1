@@ -13,6 +13,7 @@ from PyQt6.QtWidgets import (QWidget, QTabWidget, QVBoxLayout, QHBoxLayout, QFor
 import pyqtgraph as pg
 from .. import geometry as G
 from .. import protocol as P
+from .. import sessionlog
 from ..twin import default_dwell_table, dwell_word, Scenes, word_fields, load_plates, plate_cells_on_board
 from ..bringup import (frame_to_Z, obs61_from_frame, Baseline, CalibLog, RunningStats, model_shim, single_dwell_table,
                        plate_expected, plate_record_from_frames, PlateLog)
@@ -58,6 +59,7 @@ class BringupPanel(QWidget):
         self._last_draw = 0.0
         lay = QVBoxLayout(self); lay.setContentsMargins(2, 2, 2, 2)
         self.tabs = QTabWidget(); lay.addWidget(self.tabs)
+        self.tabs.currentChanged.connect(lambda i: sessionlog.emit('bringup_tab', index=i, name=self.tabs.tabText(i)))
         self._build_status(); self._build_single(); self._build_baseline(); self._build_scan(); self._build_calib(); self._build_plate(); self._build_noise()
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.start(500)
 
@@ -94,6 +96,7 @@ class BringupPanel(QWidget):
             self._update_scan(meta)
 
     def _send(self, name, value=None):
+        sessionlog.emit('cmd', cmd=name, value=(value.tolist() if hasattr(value, 'tolist') else value) if name != 'dwell_table' else f'{len(value)} entries')
         src = self.get_source()
         if src is None:
             return False
@@ -162,6 +165,7 @@ class BringupPanel(QWidget):
         self.tabs.addTab(w, '单驻留')
 
     def apply_single(self):
+        sessionlog.emit('single_dwell', drv=self.s_drv.value(), sns=self.s_sns.value(), pga=self.s_pga.currentIndex(), ref=self.s_ref.isChecked(), vna=self.s_vna.isChecked())
         pga = self.s_pga.currentIndex()
         tbl = single_dwell_table(self.s_drv.value(), self.s_sns.value(), pga, int(self.s_ref.isChecked()), int(self.s_vna.isChecked()))
         self.hist_V.clear(); self.hist_ph.clear(); self.stats = RunningStats(self.n_win.value())
@@ -203,6 +207,7 @@ class BringupPanel(QWidget):
         self.tabs.addTab(w, '基线')
 
     def collect_baseline(self):
+        sessionlog.emit('baseline_collect', n=self.bl_n.value())
         self._send('dwell_table', default_dwell_table())
         self._collect_frames(self.bl_n.value(), self._baseline_done)
         self.bl_info.setText('采集中…（确认板上没有铜环）')
@@ -246,6 +251,7 @@ class BringupPanel(QWidget):
         if self.baseline is None:
             self.bl_info.setText('先采集或载入基线'); return
         self.pipeline.set_baseline(self.baseline.L61)
+        sessionlog.emit('baseline_apply', n_frames=self.baseline.n_frames, when=self.baseline.when)
         self.bl_info.setText('已把实测基线应用为跟踪器载波 (refl = L − 基线)')
 
     # ---------- 4 单元扫描 ----------
@@ -316,6 +322,7 @@ class BringupPanel(QWidget):
         sc = Scenes.shim(a['unit'], a['gap_mm'], a['tilt_deg'], a['tilt_dir_deg'], a['dx_mm'], a['dy_mm'], model_gap=self.env.gap) if kind == 'shim' \
             else Scenes.no_rings() if kind == 'no_rings' else Scenes.rest()
         src.set_scene(sc); self.scan_ema = None; self.stats = RunningStats(self.n_win.value())
+        sessionlog.emit('twin_scene', scene=sc.name, **a)
         self.calib_info.setText(f'孪生场景 → {sc.name}')
 
     def predict_calib(self):
@@ -324,6 +331,7 @@ class BringupPanel(QWidget):
         self.calib_info.setText(f'模型: ΔL_self {ms:+.3f} nH; 邻边 ' + ' '.join(f'{k}:{v:+.3f}' for k, v in sorted(me.items())))
 
     def record_calib(self):
+        sessionlog.emit('calib_record', **self._calib_args(), n=self.c_n.value())
         if self.baseline is None:
             self.calib_info.setText('先采集/载入无环基线'); return
         self._send('dwell_table', default_dwell_table())
@@ -396,6 +404,7 @@ class BringupPanel(QWidget):
             self.plate_info.setText('当前数据源不是孪生'); return
         sc = Scenes.plate(self.p_code.currentText(), self.p_k.value(), self.plates, model_gap=self.env.gap)
         src.set_scene(sc); self.scan_ema = None; self.stats = RunningStats(self.n_win.value())
+        sessionlog.emit('twin_plate', plate=self.p_code.currentText(), k=self.p_k.value(), scene=sc.name)
         self.plate_info.setText(f'孪生场景 → {sc.name}')
 
     def record_plate(self):
@@ -403,11 +412,13 @@ class BringupPanel(QWidget):
             self.plate_info.setText('先采集/载入无环基线 (基线页)'); return
         self._send('dwell_table', default_dwell_table())
         code, k, note = self.p_code.currentText(), self.p_k.value(), self.p_note.text()
+        sessionlog.emit('plate_record_start', plate=code, k=k, n=self.p_n.value(), note=note)
         def done(frames):
             rec = plate_record_from_frames(frames, self.env, self.baseline.L61, self.model, self.plates, code, k, note)
             self.plate_log.records.append(rec)
             self._fill_plate_table(rec.dL_meas, rec.dL_model, rec.sigma)
             sm = rec.summary()
+            sessionlog.emit('plate_record_done', plate=code, k=k, n_frames=rec.n_frames, units=rec.units, summary=sm)
             self.plate_info.setText(f'记录 {len(self.plate_log.records)}: {code} k={k} {rec.n_frames} 帧 — 自反射 实测/模型 中位比 {sm["self_ratio"]:.4f}, '
                                     f'差 rms {sm["self_rms"]:.3f} / max {sm["self_max"]:.3f} nH; 边 差 rms {sm["edge_rms"]:.4f} / max {sm["edge_max"]:.4f} nH; '
                                     f'无环单元自观测残差 max {sm["absent_self_max"]:.3f} nH')

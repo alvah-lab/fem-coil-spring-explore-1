@@ -22,13 +22,15 @@ from .obsview import ObsView
 from .diag import DiagView
 from .scene_panel import ScenePanel
 from .bringup import BringupPanel
+from .. import sessionlog
 from .view3d import View3D
 
 pg.setConfigOptions(antialias=False, background='w', foreground='k')
 
 class MainWindow(QMainWindow):
-    def __init__(self, source='twin', file=None, scene='point_press', noise='hardware', udp_device=None):
+    def __init__(self, source='twin', file=None, scene='point_press', noise='hardware', udp_device=None, log=False):
         super().__init__()
+        self.logger = None; self._log_args = dict(source=source, scene=scene, noise=noise, udp_device=udp_device)
         self.setWindowTitle('方案C 19 单元蜂窝触觉 — 主机 (数字孪生 / UDP / 回放)')
         self.resize(1500, 900)
         self.env = Environment(noise=NoiseModel(preset=noise))
@@ -66,14 +68,19 @@ class MainWindow(QMainWindow):
         self.btn_start.clicked.connect(lambda: self.start_source(self.src_combo.currentText()))
         self.btn_stop.clicked.connect(self.stop_source)
         self.btn_rec.toggled.connect(self._toggle_rec); self.btn_save.clicked.connect(self._save_rec)
-        self.btn_reset.clicked.connect(lambda: self.pipeline.tracker.reset())
+        self.btn_reset.clicked.connect(lambda: (sessionlog.emit('tracker_reset_button'), self.pipeline.tracker.reset()))
         self.btn_rf.toggled.connect(self._toggle_rf)
+        self.btn_log = QPushButton('日志'); self.btn_log.setCheckable(True); tb.addWidget(self.btn_log)
+        self.btn_log.setToolTip('会话日志: 操作事件 + 每帧跟踪器/掩码/观测原始数据 + 原始帧 → host/logs/session_*/')
+        self.btn_log.toggled.connect(self._toggle_log)
         self.setStatusBar(QStatusBar())
         # 刷新
         self.timer = QTimer(self); self.timer.timeout.connect(self._redraw); self.timer.start(33)
         self.worker.start()
         self.replay_file = file; self.scene_name = scene
         self.src_combo.setCurrentText(source)
+        if log:
+            self.btn_log.setChecked(True)
         self.start_source(source)
 
     def start_source(self, kind):
@@ -90,13 +97,17 @@ class MainWindow(QMainWindow):
             self.source = ReplaySource(path)
         self.source.frame_ready.connect(self.worker.push)
         self.source.frame_ready.connect(self.bringup.on_frame)
+        self.source.frame_ready.connect(self._log_raw)
+        sessionlog.emit('start_source', kind=kind, scene=getattr(getattr(self.source, 'twin', None), 'scene', None) and self.source.twin.scene.name, device=str(self.udp_device) if kind == 'udp' else None)
         self.source.status.connect(lambda s: self.statusBar().showMessage(s, 5000))
         self.source.start()
         self.statusBar().showMessage(f'数据源: {kind}', 3000)
     def stop_source(self):
         if self.source is not None:
+            sessionlog.emit('stop_source')
             self.source.stop(); self.source = None
     def _toggle_rf(self, on):
+        sessionlog.emit('rf_en', on=bool(on))
         if self.source is not None:
             self.source.send_command(P.Command('RF_EN', 1 if on else 0))
             self.statusBar().showMessage(f'RF_EN={int(on)}', 3000)
@@ -110,6 +121,18 @@ class MainWindow(QMainWindow):
             self.recorder.save(path); self.statusBar().showMessage(f'已保存 {len(self.recorder.frames)} 帧 → {path}', 5000)
     def _on_result(self, res):
         self.latest = res
+        if self.logger is not None:
+            self.logger.frame(res, extra=dict(dropped=self.worker.n_dropped, skipped=self.worker.n_skipped))
+    def _log_raw(self, fr):
+        if self.logger is not None:
+            self.logger.recorder.add(fr)
+    def _toggle_log(self, on):
+        if on and self.logger is None:
+            self.logger = sessionlog.SessionLogger(meta=self._log_args); sessionlog.set_active(self.logger)
+            self.statusBar().showMessage(f'日志开始 → {self.logger.dir}', 5000)
+        elif not on and self.logger is not None:
+            sessionlog.set_active(None); path = self.logger.close(); self.logger = None
+            self.statusBar().showMessage(f'日志已保存 {path}', 8000)
     def _redraw(self):
         res = self.latest
         if res is None:
@@ -120,13 +143,17 @@ class MainWindow(QMainWindow):
             self.view3d.update_result(res)
         self.diag.update_result(res, f'队列丢弃 {self.worker.n_dropped}  录制 {len(self.recorder.frames)} 帧')
     def closeEvent(self, ev):
-        self.stop_source(); self.worker.stop(); super().closeEvent(ev)
+        self.stop_source(); self.worker.stop()
+        if self.logger is not None:
+            self._toggle_log(False)
+        super().closeEvent(ev)
 
 def main(argv=None):
     ap = argparse.ArgumentParser()
     ap.add_argument('--source', default='twin', choices=['twin', 'udp', 'replay'])
     ap.add_argument('--file', default=None); ap.add_argument('--scene', default='point_press', choices=Scenes.ALL)
     ap.add_argument('--noise', default='hardware', choices=['hardware', 'sig2_matched', 'off'])
+    ap.add_argument('--log', action='store_true', help='启动即开会话日志 (host/logs/session_*/)')
     ap.add_argument('--device', default=None, help='udp: ip:port (默认 192.168.2.128:5000; sim_device 用 127.0.0.1:5000)')
     ap.add_argument('--screenshot', default=None, help='无头冒烟: 跑 N 秒后截图退出 (path)')
     ap.add_argument('--seconds', type=float, default=3.0)
@@ -135,7 +162,7 @@ def main(argv=None):
     if a.device:
         ip, port = a.device.split(':'); dev = (ip, int(port))
     app = QApplication(sys.argv[:1])
-    win = MainWindow(a.source, a.file, a.scene, a.noise, dev)
+    win = MainWindow(a.source, a.file, a.scene, a.noise, dev, log=a.log)
     win.show()
     if a.screenshot:
         def shot():

@@ -86,6 +86,24 @@ RANGE_P = np.array([RANGE[d] for d in DOFS] * NU)  # (95,)
 RANGE_Q = np.concatenate([np.full(NU, RANGE['z']), np.full(NU, RANGE['x']), np.full(NU, RANGE['y'])])  # (57,)
 T_S = (T_PHYS / RANGE_P[:, None]) * RANGE_Q[None, :]   # 缩放域映射
 
+
+def _build_T_rigid():
+    """刚性映射: 每单元独立 (dx=u, dy=v, dz=w, 无倾斜, 无邻居耦合). 用于刚性标定板 / 部分放环."""
+    T = np.zeros((NU * 5, 3 * NU))
+    for u in range(NU):
+        T[u * 5 + 0, NU + u] = 1.0
+        T[u * 5 + 1, 2 * NU + u] = 1.0
+        T[u * 5 + 2, u] = 1.0
+    return T
+
+
+T_RIGID = _build_T_rigid()                          # (95,57)
+T_S_RIGID = (T_RIGID / RANGE_P[:, None]) * RANGE_Q[None, :]
+
+
+def pose_of_rigid(q: np.ndarray) -> np.ndarray:
+    return (T_RIGID @ np.asarray(q, float)).reshape(NU, 5)
+
 def pose_of(q: np.ndarray) -> np.ndarray:
     """q(57) 物理 → pose (19,5) 物理."""
     return (T_PHYS @ np.asarray(q, float)).reshape(NU, 5)

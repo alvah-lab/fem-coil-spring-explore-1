@@ -26,7 +26,7 @@ class TrackerConfig:
     rel_floor: float = 1e-3
     abs_floor_nH: float = 0.005
     box_w: float = 1.6          # |w| 上限: 静息 2.53 → 绝对间隙 1.0..3.0 (clamp_pose 再按绝对间隙钳位)
-    box_uv: float = 0.5
+    box_uv: float = 0.5         # |u|,|v| 上限 (柔性模式; 刚性模式用 0.6 容纳标定板 0.5 偏移)
 
 @dataclass
 class TrackerOutput:
@@ -68,6 +68,7 @@ class Tracker:
         self._gen = 0                    # 线性化代数: 掩码切换后, 后台算出的旧代数结果作废
         self.async_relin = True          # 重线性化在后台线程 (双缓冲)
         self.present = np.ones(G.NU, bool)   # 环在位掩码 (回板阶段部分放环)
+        self.rigid = False                   # 刚性模式: 位姿 = q 直接映射 (无柔性面先验), 刚性标定板/部分放环用
         self._frozen = np.zeros(3 * G.NU, bool)
         self.Rr = None                       # None = 模型默认; 缺席环 1e12 Ω
         self.linearize(self.q)
@@ -81,11 +82,26 @@ class Tracker:
         self.present = mask.copy()
         self.Rr = None if mask.all() else np.where(mask, self.model.ring.R, 1e12)
         self._frozen = np.tile(~mask, 3)
-        self.q[self._frozen] = 0.0
+        self.q[:] = 0.0                      # 换板/换取向: 全部位姿从 0 重新收敛 (沿用旧值会离线性化点太远而走过头)
         self._gen += 1; self._pending = None
         self.linearize(self.q)
         self.chi2_hist.clear(); self.sat_count = 0
         return True
+
+    def set_rigid(self, rigid: bool) -> bool:
+        """切换柔性先验 / 刚性映射; 变化时同步重线性化."""
+        rigid = bool(rigid)
+        if rigid == self.rigid:
+            return False
+        self.rigid = rigid
+        self.box = np.concatenate([np.full(G.NU, self.cfg.box_w), np.full(2 * G.NU, 0.6 if rigid else self.cfg.box_uv)])
+        self._gen += 1; self._pending = None
+        self.linearize(self.q)
+        self.chi2_hist.clear(); self.sat_count = 0
+        return True
+
+    def _pose_of(self, q):
+        return G.pose_of_rigid(q) if self.rigid else G.pose_of(q)
 
     def _observe(self, poses):
         return self.model.observe_L(poses) if self.Rr is None else self.model.observe_L(poses, self.Rr)
@@ -98,8 +114,8 @@ class Tracker:
         return self.lin
 
     def _compute_lin(self, q_lin):
-        J = self.model.jacobian(G.pose_of(q_lin), R_ring=self.Rr)
-        Jc = (J / self.sig[:, None]) @ G.T_S
+        J = self.model.jacobian(self._pose_of(q_lin), R_ring=self.Rr)
+        Jc = (J / self.sig[:, None]) @ (G.T_S_RIGID if self.rigid else G.T_S)
         if not self.present.all():
             Jc[:, np.tile(~self.present, 3)] = 0.0     # 缺席环的 (w,u,v) 冻结
         U, S, Vt = np.linalg.svd(Jc, full_matrices=False)
@@ -144,24 +160,38 @@ class Tracker:
         y = np.asarray(y_L_nH, float)
         dq_norm = 0.0; clamped_any = False
         for _ in range(cfg.iters_per_frame):
-            poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
+            poses, cl = G.clamp_pose(self._pose_of(self.q), self.model.cfg.gap)
             clamped_any |= bool(cl.any())
             r = (y - self._observe(poses)) / self.sig
+            chi2_cur = float(np.mean(r ** 2))
             dq = np.clip(lin['Jp'] @ r, -cfg.clip, cfg.clip)
-            self.q = np.clip(self.q + cfg.damping * dq * G.RANGE_Q, -self.box, self.box)
-            self.q[self._frozen] = 0.0
-            dq_norm = float(np.linalg.norm(dq))
+            # 回溯: 试探步使 χ² 明显变差 (线性化点太远/过冲) 则减半, 最多 3 次
+            step = cfg.damping
+            n_try = 3 if chi2_cur > 50 else 1        # 接近收敛 (噪声主导) 时不回溯, 省正演
+            for attempt in range(n_try):
+                q_new = np.clip(self.q + step * dq * G.RANGE_Q, -self.box, self.box)
+                q_new[self._frozen] = 0.0
+                p_new, _ = G.clamp_pose(self._pose_of(q_new), self.model.cfg.gap)
+                r_new = (y - self._observe(p_new)) / self.sig
+                if float(np.mean(r_new ** 2)) <= chi2_cur * 1.05 or attempt == n_try - 1:
+                    break
+                step *= 0.5
+            if step < cfg.damping and self.async_relin:
+                self.request_relinearize()          # 线性化点已过时
+            self.q = q_new
+            r = r_new
+            dq_norm = float(np.linalg.norm(dq)) * step / cfg.damping
             if np.mean(np.abs(dq) >= cfg.clip * 0.999) > 0.5:
                 self.sat_count += 1
             else:
                 self.sat_count = 0
         if self.frame % cfg.slow_every == cfg.slow_every - 1:
-            poses, _ = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
+            poses, _ = G.clamp_pose(self._pose_of(self.q), self.model.cfg.gap)
             r = (y - self._observe(poses)) / self.sig
             dqw = np.clip(lin['Jp_w'] @ r, -cfg.slow_clip, cfg.slow_clip)
             self.q = np.clip(self.q + cfg.slow_damping * dqw * G.RANGE_Q, -self.box, self.box)
             self.q[self._frozen] = 0.0
-        poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
+        poses, cl = G.clamp_pose(self._pose_of(self.q), self.model.cfg.gap)
         y_pred = y - r * self.sig          # 步前预测 (省一次正演; 与当前 q 差一步)
         resid = r
         chi2 = float(np.mean(resid ** 2))
@@ -170,11 +200,10 @@ class Tracker:
             self.chi2_hist.pop(0)
         # 发散保护
         med = np.median(self.chi2_hist[:-3]) if len(self.chi2_hist) > 6 else None
-        improving = len(self.chi2_hist) >= 4 and chi2 < 0.9 * self.chi2_hist[-4]
-        if (self.sat_count >= 3 and not improving) or (med is not None and med > 0 and
+        if (med is not None and med > 0 and
                                    all(c > cfg.reset_resid_factor * med for c in self.chi2_hist[-3:]) and chi2 > 25):
             self.reset(); did_reset = True; lin = self.lin
-            poses, cl = G.clamp_pose(G.pose_of(self.q), self.model.cfg.gap)
+            poses, cl = G.clamp_pose(self._pose_of(self.q), self.model.cfg.gap)
             y_pred = self._observe(poses); resid = (y - y_pred) / self.sig; chi2 = float(np.mean(resid ** 2))
         # 重线性化触发
         far = np.max(np.abs((self.q - lin['q_lin']) / G.RANGE_Q)) > cfg.relin_dq
