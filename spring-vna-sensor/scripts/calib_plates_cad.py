@@ -7,7 +7,7 @@
 几何 (mm)
 - 格: 对边 = PITCH 5.2 无缝拼接, 有环格顶面在 H = gap − 0.13 (环底面; 环质心→L1 铜面 = gap), 中心凸柱 Ø2.94×0.2 卡环内孔 + 其上完整扁圆锥 (母线 30°, 高 0.85, 收尖) 导入;
   无环格实心低平台 H_BLANK = 0.8 (无凸柱). 倾斜格顶面绕格心倾斜 (凸柱沿法向), 偏移格凸柱偏移 (dx,dy).
-- 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); −y 侧刻板号.
+- 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); 板号刻在 +x 方向标旁的围框顶面 (竖排, 两孔之间).
 - 板底 z=0 整面贴 PCB 阻焊面. 每个有环格在环座平面以上切一圈 Ø(5.0+0.4) 的余隙 (穿过更高的邻格/围框), 保证偏移/倾斜的环也放得进去.
 - 压板 (clamp_<code>): 与该板互补, 同外形、同 12 孔; 每个有环格一个 Ø3.5/Ø4.8 环形压脚落在环顶面 (倾斜格压脚同样倾斜, 偏移格压脚同样偏移),
   压脚实心, 端面中心为与凸柱锥互补的 30° 锥形凹 (Ø3.5, 深 1.01); 围框脚比围框顶高 0.1 (先压环, 再顶围框). 板厚 4.0. 顶面刻 C+板号, +x 三角方向标.
@@ -131,13 +131,16 @@ def hex_prism(h, r, cx=0.0, cy=0.0):
     return cq.Workplane('XY').polyline(hex_pts(r, cx, cy)).close().extrude(h)
 
 
-def engrave(wp, txt, z_face, size, depth, ch, cx, cy, box):
-    t = cq.Workplane('XY').text(txt, size, -depth, combine=False, halign='center', valign='center').translate((cx, cy, z_face))
+def engrave(wp, txt, z_face, size, depth, ch, cx, cy, box, rot=0.0):
+    """在 z_face 面刻字 (中心 cx,cy, 绕 z 转 rot°); box = 未旋转时的选边半宽, 只在字槽边倒角 ch (ch<=0 不倒角)."""
+    t = (cq.Workplane('XY').text(txt, size, -depth, combine=False, halign='center', valign='center')
+         .rotate((0, 0, 0), (0, 0, 1), rot).translate((cx, cy, z_face)))
     wp = wp.cut(t)
     if ch <= 0:
         return wp
+    bx, by = (box[1], box[0]) if abs(rot % 180 - 90) < 1e-6 else box
     try:
-        sel = cq.selectors.BoxSelector((cx - box[0], cy - box[1], z_face - 1e-3), (cx + box[0], cy + box[1], z_face + 1e-3), boundingbox=True)
+        sel = cq.selectors.BoxSelector((cx - bx, cy - by, z_face - 1e-3), (cx + bx, cy + by, z_face + 1e-3), boundingbox=True)
         wp = wp.edges(sel).chamfer(ch)
     except Exception as e:
         print('  letter chamfer skipped:', e)
@@ -201,7 +204,8 @@ def marker(z0, h):
     return cq.Workplane('XY').polyline([(-0.3, -0.8), (-0.3, 0.8), (1.0, 0)]).close().extrude(h).translate((x_out, 0, z0))
 
 
-Y_LAB = XY[12][1] - PITCH / 2 - WALL / 2   # 最下一排 (单元 7/12/16) 外壁
+# 板号: +x 方向标旁的围框顶面 (r=14.8, 角度 0°), 竖排 (转 90°). 12 孔在 18.6/38.7 + 60k°, 0° 附近 ±20° 无孔.
+LAB_XY, LAB_ROT = (14.8, 0.0), 90.0
 
 
 def clamp(code, layout):
@@ -232,7 +236,7 @@ def clamp(code, layout):
     for (hx, hy) in HOLES:
         body = body.cut(hole_cutter(hx, hy, z_t, -1))
     body = body.union(marker(z_b, T_CLAMP))
-    body = engrave(body, 'C' + code, z_t, 2.2, 0.5, 0.0, 0.0, Y_LAB, (4.0, 1.4))
+    body = engrave(body, 'C' + code, z_t, 2.0, 0.5, 0.0, LAB_XY[0], LAB_XY[1], (4.0, 1.3), LAB_ROT)
     assert len(body.solids().vals()) == 1, f'{code}: clamp is not a single solid'
     return body, z_b, z_t
 
@@ -257,8 +261,8 @@ def plate(code, layout):
     for (hx, hy) in HOLES:
         body = body.cut(hole_cutter(hx, hy, 0.0, +1))
     body = body.union(marker(0.0, T_RIM))
-    # 板号: −y 外壁顶面
-    body = engrave(body, code, T_RIM, 1.6, 0.15, CH_LETTER, 0.0, Y_LAB, (3.0, 1.0))
+    # 板号: 方向标旁围框顶面, 竖排
+    body = engrave(body, code, T_RIM, 1.6, 0.15, CH_LETTER, LAB_XY[0], LAB_XY[1], (3.0, 1.0), LAB_ROT)
     assert len(body.solids().vals()) == 1, f'{code}: plate is not a single solid'
     return body
 
