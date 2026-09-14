@@ -8,7 +8,11 @@
 - 格: 对边 = PITCH 5.2 无缝拼接, 有环格顶面在 H = gap − 0.13 (环底面; 环质心→L1 铜面 = gap), 中心凸柱 Ø2.94×0.2 卡环内孔 + 其上完整扁圆锥 (母线 30°, 高 0.85, 收尖) 导入;
   无环格实心低平台 H_BLANK = 0.8 (无凸柱). 倾斜格顶面绕格心倾斜 (凸柱沿法向), 偏移格凸柱偏移 (dx,dy).
 - 围框: 蜂窝外轮廓外扩 WALL, 高 T_RIM; 12 个 Ø2.15 通孔 = HLOC2/HLOC5 两颗 M2 螺钉 (板背面穿出) 的 6 个转位像; +x 侧三角方向标 (取向 k=0); −y 侧刻板号.
-- 板底 z=0 整面贴 PCB 阻焊面. 打印: 以一个侧沿做支撑 (SLA).
+- 板底 z=0 整面贴 PCB 阻焊面. 每个有环格在环座平面以上切一圈 Ø(5.0+0.4) 的余隙 (穿过更高的邻格/围框), 保证偏移/倾斜的环也放得进去.
+- 压板 (clamp_<code>): 与该板互补, 同外形、同 12 孔; 每个有环格一个 Ø3.5/Ø4.8 环形压脚落在环顶面 (倾斜格压脚同样倾斜, 偏移格压脚同样偏移),
+  压脚中心留 Ø3.5×1.1 锥尖避空; 围框脚比围框顶高 0.1 (先压环, 再顶围框). 板厚 4.0. 顶面刻 C+板号, +x 三角方向标.
+- 打印 (SLA/MSLA): 板 = 平放, 板底直接贴平台 (无支撑, 顶面全部朝上, 无悬空, 孔垂直); 压板 = 顶面贴平台, 压脚朝上. 贴平台面的孔口有 0.3 倒角抵消大象脚.
+  层高取 0.02 mm (所有环座高 1.22/1.62/2.40、围框 2.0、平台 0.8 都是整数层).
 """
 import os, sys, math, json, argparse
 import numpy as np
@@ -31,6 +35,10 @@ A_CONE = 30.0                     # 凸柱顶部完整扁圆锥: 母线与水平
 H_BLANK = 0.8
 WALL, T_RIM = 3.5, 2.0
 CH_LETTER = 0.05
+CLR_RING = 0.2                    # 环外沿到任何更高结构 (邻格/围框) 的余隙
+CH_FOOT = 0.3                     # 贴打印平台那一面的孔口倒角 (大象脚)
+T_CLAMP, CLR_TOP, CLR_RIM = 4.0, 0.5, 0.1   # 压板厚; 压板体底面离最高环顶/围框顶; 围框脚离围框顶
+R_PAD_O, R_PAD_I, D_POCKET = 2.4, 1.75, 1.1  # 压脚环 外/内半径 (环 2.5/1.5, 凸柱 1.47); 锥尖避空深 (锥高 0.85)
 # 定位: 板背面从 HLOC2 (60.02,27.08) 与 HLOC5 (59.47,52.57) 伸出两颗 M2 螺钉 (相隔 160°), 整板绕阵列中心按 60° 转位复用;
 # 板上开这两点各自 6 个旋转像共 12 个通孔 (Ø2.15, 相互 ≥4.5 mm). 六个 HLOC 本身不是 60° 对称, 不能六颗都用.
 STUDS = [(60.02 - 62.0, -(27.08 - 40.0)), (59.47 - 62.0, -(52.57 - 40.0))]
@@ -126,6 +134,8 @@ def hex_prism(h, r, cx=0.0, cy=0.0):
 def engrave(wp, txt, z_face, size, depth, ch, cx, cy, box):
     t = cq.Workplane('XY').text(txt, size, -depth, combine=False, halign='center', valign='center').translate((cx, cy, z_face))
     wp = wp.cut(t)
+    if ch <= 0:
+        return wp
     try:
         sel = cq.selectors.BoxSelector((cx - box[0], cy - box[1], z_face - 1e-3), (cx + box[0], cy + box[1], z_face + 1e-3), boundingbox=True)
         wp = wp.edges(sel).chamfer(ch)
@@ -152,6 +162,85 @@ def cell_solid(u, spec):
     return body.union(boss)
 
 
+def seat_h(spec):
+    return spec['gap'] - T_RING / 2 - T_MASK
+
+
+def tilt_axis(spec):
+    th = math.radians(spec['tilt']); ph = math.radians(spec['tdir'])
+    return math.degrees(th), (-math.sin(ph), math.cos(ph), 0)
+
+
+def ring_clearance(u, spec):
+    """环座平面以上、环外沿 + CLR_RING 以内的环形区域 (不含凸柱): 从中挖掉更高的邻格/围框."""
+    x, y = XY[u]; deg, axis = tilt_axis(spec)
+    ann = cq.Workplane('XY').circle(R_RING_O + CLR_RING).circle(R_BOSS + 0.02).extrude(10)
+    return ann.rotate((0, 0, 0), axis, deg).translate((x + spec['dx'], y + spec['dy'], seat_h(spec)))
+
+
+def hole_cutter(hx, hy, z_face, up):
+    """通孔 + 贴平台面 (z_face) 的孔口倒角; up=+1 表示实体在 z_face 之上."""
+    c = cq.Workplane('XY').circle(HOLE_D / 2).extrude(30).translate((hx, hy, -15))
+    cone = cq.Solid.makeCone(HOLE_D / 2 + CH_FOOT, HOLE_D / 2, CH_FOOT, cq.Vector(hx, hy, z_face), cq.Vector(0, 0, up))
+    return c.union(cq.Workplane('XY').add(cone))
+
+
+def outline(h, z0=0.0):
+    """围框外轮廓 (19 个外扩六边形的并) 与内轮廓 (19 格) 的柱体, 高 h, 底 z0."""
+    r_out = (PITCH + 2 * WALL) / math.sqrt(3)
+    outer = None; inner = None
+    for x, y in XY:
+        o = hex_prism(h, r_out, x, y); i = hex_prism(h, R_CELL, x, y)
+        outer = o if outer is None else outer.union(o)
+        inner = i if inner is None else inner.union(i)
+    return outer.translate((0, 0, z0)), inner.translate((0, 0, z0))
+
+
+def marker(z0, h):
+    x_out = XY[18][0] + (PITCH + 2 * WALL) / 2
+    return cq.Workplane('XY').polyline([(-0.3, -0.8), (-0.3, 0.8), (1.0, 0)]).close().extrude(h).translate((x_out, 0, z0))
+
+
+Y_LAB = XY[12][1] - PITCH / 2 - WALL / 2   # 最下一排 (单元 7/12/16) 外壁
+
+
+def clamp(code, layout):
+    """压板: 与板互补. 返回 (装配位姿实体, z_bottom, z_top)."""
+    cells = layout['cells']
+    tops = [T_RIM] + [seat_h(s) + T_RING + R_PAD_O * math.tan(math.radians(s['tilt'])) for s in cells.values()]
+    z_b = max(tops) + CLR_TOP; z_t = z_b + T_CLAMP
+    outer, _ = outline(T_CLAMP, z_b)
+    body = outer
+    z_foot = T_RIM + (CLR_RIM if cells else 0.0)
+    fo, fi = outline(z_b + 0.5 - z_foot, z_foot)
+    foot = fo.cut(fi)
+    for u, s in cells.items():
+        x, y = XY[u]
+        foot = foot.cut(cq.Workplane('XY').circle(R_RING_O + 0.3).extrude(seat_h(s) + T_RING + 0.3).translate((x + s['dx'], y + s['dy'], 0)))
+    body = body.union(foot)
+    for u, s in cells.items():
+        x, y = XY[u]; H = seat_h(s); deg, axis = tilt_axis(s)
+        pad = cq.Workplane('XY').circle(R_PAD_O).extrude(z_b + 0.5 - (H - 0.5)).translate((x + s['dx'], y + s['dy'], H - 0.5))
+        below = cq.Workplane('XY').rect(20, 20).extrude(-10).rotate((0, 0, 0), axis, deg).translate((x, y, H + T_RING))
+        body = body.union(pad.cut(below))
+    for u, s in cells.items():   # 锥尖避空: 并入压脚后再挖, 使避空穿进板体
+        x, y = XY[u]; H = seat_h(s); deg, axis = tilt_axis(s)
+        pocket = (cq.Workplane('XY').circle(R_PAD_I).extrude(D_POCKET + 0.5).translate((0, 0, -0.5))
+                  .rotate((0, 0, 0), axis, deg).translate((x + s['dx'], y + s['dy'], H + T_RING)))
+        body = body.cut(pocket)
+    for (hx, hy) in HOLES:
+        body = body.cut(hole_cutter(hx, hy, z_t, -1))
+    body = body.union(marker(z_b, T_CLAMP))
+    body = engrave(body, 'C' + code, z_t, 2.2, 0.4, 0.0, 0.0, Y_LAB, (4.0, 1.4))
+    assert len(body.solids().vals()) == 1, f'{code}: clamp is not a single solid'
+    return body, z_b, z_t
+
+
+def clamp_print_pose(body, z_t):
+    """打印位姿: 顶面贴平台 (z=0), 压脚朝上."""
+    return body.rotate((0, 0, 0), (1, 0, 0), 180).translate((0, 0, z_t))
+
+
 def plate(code, layout):
     cells = layout['cells']
     body = None
@@ -159,22 +248,16 @@ def plate(code, layout):
         c = cell_solid(u, cells.get(u))
         body = c if body is None else body.union(c)
     # 围框
-    r_out = (PITCH + 2 * WALL) / math.sqrt(3)
-    outer = None; inner = None
-    for x, y in XY:
-        o = hex_prism(T_RIM, r_out, x, y); i = hex_prism(T_RIM, R_CELL, x, y)
-        outer = o if outer is None else outer.union(o)
-        inner = i if inner is None else inner.union(i)
-    rim = outer.cut(inner)
-    body = body.union(rim)
+    outer, inner = outline(T_RIM)
+    body = body.union(outer.cut(inner))
+    # 环余隙: 环座平面以上挖掉更高的邻格/围框 (偏移/倾斜环放得进去)
+    for u, s in cells.items():
+        body = body.cut(ring_clearance(u, s))
     for (hx, hy) in HOLES:
-        body = body.cut(cq.Workplane('XY').circle(HOLE_D / 2).extrude(10).translate((hx, hy, -1)))
-    # 方向标 (+x 外壁)
-    x_out = XY[18][0] + (PITCH + 2 * WALL) / 2
-    body = body.union(cq.Workplane('XY').polyline([(-0.3, -0.8), (-0.3, 0.8), (1.0, 0)]).close().extrude(T_RIM).translate((x_out, 0, 0)))
+        body = body.cut(hole_cutter(hx, hy, 0.0, +1))
+    body = body.union(marker(0.0, T_RIM))
     # 板号: −y 外壁顶面
-    y_lab = XY[12][1] - PITCH / 2 - WALL / 2   # 最下一排 (单元 7/12/16) 外壁
-    body = engrave(body, code, T_RIM, 1.6, 0.15, CH_LETTER, 0.0, y_lab, (3.0, 1.0))
+    body = engrave(body, code, T_RIM, 1.6, 0.15, CH_LETTER, 0.0, Y_LAB, (3.0, 1.0))
     assert len(body.solids().vals()) == 1, f'{code}: plate is not a single solid'
     return body
 
@@ -190,6 +273,7 @@ def write_json(layouts):
     d = {}
     for code, L in layouts.items():
         d[code] = dict(desc=L['desc'], H_blank=H_BLANK,
+                       T_rim=T_RIM, T_clamp=T_CLAMP,
                        cells={str(u): dict(gap_mm=s['gap'], tilt_deg=s['tilt'], tilt_dir_deg=s['tdir'], dx_mm=s['dx'], dy_mm=s['dy'],
                                            H_seat_mm=round(s['gap'] - T_RING / 2 - T_MASK, 4)) for u, s in L['cells'].items()})
     d['_rotation_maps'] = {str(k): {str(u): v for u, v in m.items()} for k, m in rotation_maps().items()}
@@ -205,6 +289,7 @@ def write_json(layouts):
 
 def main():
     ap = argparse.ArgumentParser(); ap.add_argument('--only', default=None); ap.add_argument('--json-only', action='store_true')
+    ap.add_argument('--no-clamp', action='store_true')
     a = ap.parse_args()
     layouts = build_layouts()
     table = write_json(layouts)
@@ -215,6 +300,10 @@ def main():
         if a.only and code not in a.only.split(','):
             continue
         export(plate(code, L), f'plate_{code}')
+        if not a.no_clamp:
+            c, z_b, z_t = clamp(code, L)
+            print(f'  clamp {code}: 体底面 z={z_b:.2f}, 顶面 z={z_t:.2f} (装配坐标, 板底=0)')
+            export(clamp_print_pose(c, z_t), f'clamp_{code}')
 
 
 if __name__ == '__main__':
