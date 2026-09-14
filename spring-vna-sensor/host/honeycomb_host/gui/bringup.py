@@ -59,7 +59,7 @@ class BringupPanel(QWidget):
         self._last_draw = 0.0
         lay = QVBoxLayout(self); lay.setContentsMargins(2, 2, 2, 2)
         self.tabs = QTabWidget(); lay.addWidget(self.tabs)
-        self.tabs.currentChanged.connect(lambda i: sessionlog.emit('bringup_tab', index=i, name=self.tabs.tabText(i)))
+        self.tabs.currentChanged.connect(lambda i: sessionlog.emit('bringup_tab', index=i, tab=self.tabs.tabText(i)))
         self._build_status(); self._build_single(); self._build_baseline(); self._build_scan(); self._build_calib(); self._build_plate(); self._build_noise()
         self.timer = QTimer(self); self.timer.timeout.connect(self._tick); self.timer.start(500)
 
