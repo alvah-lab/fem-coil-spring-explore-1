@@ -48,7 +48,7 @@ def test_mod_table_command_and_phasors():
     for i in range(63):
         _, _, _, reg_v, _, _, dv = P.unpack_cmd(pk[1 + 2 * i]); _, _, _, reg_i, _, _, di = P.unpack_cmd(pk[2 + 2 * i])
         assert reg_v == P.REG['MOD_V'] and reg_i == P.REG['MOD_I']
-        back[i] = [np.int16(dv & 0xFFFF), np.int16(dv >> 16), np.int16(di & 0xFFFF), np.int16(di >> 16)]
+        back[i] = np.array([dv & 0xFFFF, dv >> 16, di & 0xFFFF, di >> 16], np.uint16).astype(np.int16)
     assert np.array_equal(back, t)
     # 表编码的相量 == 输入相量 (±0.5 LSB), 且 step() 的记录与之一致
     Vt = (t[:, 0] - 1j * t[:, 1]) * LSB
