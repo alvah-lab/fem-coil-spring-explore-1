@@ -51,8 +51,8 @@ def test_mod_table_command_and_phasors():
         back[i] = np.array([dv & 0xFFFF, dv >> 16, di & 0xFFFF, di >> 16], np.uint16).astype(np.int16)
     assert np.array_equal(back, t)
     # 表编码的相量 == 输入相量 (±0.5 LSB), 且 step() 的记录与之一致
-    Vt = (t[:, 0] - 1j * t[:, 1]) * LSB
-    assert np.abs(Vt - V).max() <= 0.71 * LSB
+    Vt = (t[:, 0] - 1j * t[:, 1]) * LSB / 16
+    assert np.abs(Vt - V).max() <= 0.71 * LSB / 16
     fr = tw.step(); n_eff = tw.env.dwell_nsamp - tw.env.link.blank_nsamp
     Vs = (fr.dwells['V_I'] - 1j * fr.dwells['V_Q']) * 2 * LSB / n_eff
     assert np.abs(Vs - V).max() <= 2 * LSB * 2 / n_eff + 1e-9

@@ -422,13 +422,17 @@ class Twin:
         Q = (v @ s + (sc >> 1)) >> coef_q
         return np.clip(I, -2**31, 2**31 - 1), np.clip(Q, -2**31, 2**31 - 1)
 
+MOD_Q = 4   # 调制表定点小数位: 单位 LSB/16
+
+
 def mod_table_from_phasors(V: np.ndarray, Ich: np.ndarray) -> np.ndarray:
-    """固件 v0.2 驻留调制表 (DBG src 3): 每驻留 int16 [Vi, Vq, Ii, Iq] (LSB), 采样 v_n = Vi·cos + Vq·sin,
-    使主机 decode_dwells 得到的复电压 == 输入相量 (Vi = Re/LSB, Vq = −Im/LSB, 与 accumulate 同约定). 超出 ±2047 会在固件饱和."""
+    """固件 v0.2 驻留调制表 (DBG src 3): 每驻留 int16 [Vi, Vq, Ii, Iq], 单位 LSB/16 (MOD_Q=4), 采样 v_n = Vi·cos + Vq·sin (+ ±1 LSB 抖动),
+    使主机 decode_dwells 得到的复电压 == 输入相量 (Vi = Re/LSB·16, Vq = −Im/LSB·16, 与 accumulate 同约定). |V| > 2047 LSB 在固件饱和."""
     V = np.asarray(V, complex); Ich = np.asarray(Ich, complex)
+    q = 1 << MOD_Q
     t = np.zeros((len(V), 4), np.int16)
-    t[:, 0] = np.clip(np.rint(np.real(V) / LSB), -32768, 32767); t[:, 1] = np.clip(np.rint(-np.imag(V) / LSB), -32768, 32767)
-    t[:, 2] = np.clip(np.rint(np.real(Ich) / LSB), -32768, 32767); t[:, 3] = np.clip(np.rint(-np.imag(Ich) / LSB), -32768, 32767)
+    t[:, 0] = np.clip(np.rint(np.real(V) / LSB * q), -32768, 32767); t[:, 1] = np.clip(np.rint(-np.imag(V) / LSB * q), -32768, 32767)
+    t[:, 2] = np.clip(np.rint(np.real(Ich) / LSB * q), -32768, 32767); t[:, 3] = np.clip(np.rint(-np.imag(Ich) / LSB * q), -32768, 32767)
     return t
 
 
