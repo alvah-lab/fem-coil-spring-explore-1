@@ -368,6 +368,8 @@ class BringupPanel(QWidget):
         b2 = QPushButton('模型预测'); b2.clicked.connect(self.predict_plate); hb.addWidget(b2)
         b3 = QPushButton('保存 CSV+JSON…'); b3.clicked.connect(self.save_plates); hb.addWidget(b3)
         b4 = QPushButton('孪生: 装上此板'); b4.clicked.connect(self.twin_plate); hb.addWidget(b4)
+        b4f = QPushButton('FPGA: 模拟此板'); b4f.setToolTip('把此板取向的孪生驻留相量写进 FPGA 驻留调制表 (固件 v0.2 DBG src=3 + 链路自应答), FPGA 发出这块板的帧'); b4f.clicked.connect(self.fpga_plate); hb.addWidget(b4f)
+        b4x = QPushButton('FPGA: 退出模拟'); b4x.clicked.connect(self.fpga_plate_off); hb.addWidget(b4x)
         v.addLayout(hb)
         self.plate_info = QLabel('—'); self.plate_info.setWordWrap(True); v.addWidget(self.plate_info)
         self.plate_table = QTableWidget(G.NOBS, 6); self.plate_table.setHorizontalHeaderLabels(['观测', '类型', 'ΔL 实测 nH', 'ΔL 模型 nH', '差 nH', 'σ nH'])
@@ -406,6 +408,28 @@ class BringupPanel(QWidget):
         src.set_scene(sc); self.scan_ema = None; self.stats = RunningStats(self.n_win.value())
         sessionlog.emit('twin_plate', plate=self.p_code.currentText(), k=self.p_k.value(), scene=sc.name)
         self.plate_info.setText(f'孪生场景 → {sc.name}')
+
+    def fpga_plate(self):
+        src = self.get_source()
+        if src is None or hasattr(src, 'set_scene') or not hasattr(src, 'send_command'):
+            self.plate_info.setText('当前数据源不是真板 (UDP)'); return
+        from ..twin import Twin, Environment, NoiseModel, mod_table_from_phasors
+        sc = Scenes.plate(self.p_code.currentText(), self.p_k.value(), self.plates, model_gap=self.env.gap)
+        tw = Twin(env=Environment(noise=NoiseModel(preset='off')), scene=sc)
+        V, Ich, flags, _ = tw.dwell_phasors()
+        t = mod_table_from_phasors(V, Ich)
+        ok = src.send_command(P.Command('mod_table', t))
+        ok &= src.send_command(P.Command('DBG_CTRL', P.DBG_SRC_MOD | P.DBG_SELFACK))
+        sessionlog.emit('fpga_plate', plate=self.p_code.currentText(), k=self.p_k.value(), ok=ok)
+        self.plate_info.setText(f'FPGA 调制表 ← {sc.name} ({"ok" if ok else "无应答"}); DBG src=3+自应答')
+
+    def fpga_plate_off(self):
+        src = self.get_source()
+        if src is None or not hasattr(src, 'send_command'):
+            return
+        ok = src.send_command(P.Command('DBG_CTRL', 0))
+        sessionlog.emit('fpga_plate_off', ok=ok)
+        self.plate_info.setText(f'FPGA 调制表关闭, DBG_CTRL=0 ({"ok" if ok else "无应答"})')
 
     def record_plate(self):
         if self.baseline is None:

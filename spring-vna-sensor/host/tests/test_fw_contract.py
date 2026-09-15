@@ -32,3 +32,27 @@ def test_v01_registers_and_flags():
     assert len({FLAG_SAT, FLAG_REF, FLAG_ISENSE, FLAG_LINK_TIMEOUT, FLAG_LINK_FAULT}) == 5
     pk = P.Command('RF_EN', 1).to_packets(7)
     assert len(pk) == 1 and P.unpack_cmd(pk[0])[3] == 0x60 and P.unpack_cmd(pk[0])[6] == 1
+
+
+def test_mod_table_command_and_phasors():
+    """固件 v0.2 驻留调制表: Command('mod_table') 的包序列可还原表; dwell_phasors 与 step() 的累加值一致."""
+    from honeycomb_host.twin import Twin, Environment, NoiseModel, Scenes, mod_table_from_phasors, LSB
+    tw = Twin(env=Environment(noise=NoiseModel(preset='off')), scene=Scenes.plate('B2', 0))
+    V, Ich, flags, _ = tw.dwell_phasors()
+    t = mod_table_from_phasors(V, Ich)
+    assert t.shape == (63, 4) and t.dtype == np.int16
+    pk = P.Command('mod_table', t).to_packets(0)
+    assert len(pk) == 1 + 2 * 63
+    op, _, seq, reg, ch, ln, data = P.unpack_cmd(pk[0]); assert reg == P.REG['MOD_ADDR'] and data == 0
+    back = np.zeros_like(t)
+    for i in range(63):
+        _, _, _, reg_v, _, _, dv = P.unpack_cmd(pk[1 + 2 * i]); _, _, _, reg_i, _, _, di = P.unpack_cmd(pk[2 + 2 * i])
+        assert reg_v == P.REG['MOD_V'] and reg_i == P.REG['MOD_I']
+        back[i] = [np.int16(dv & 0xFFFF), np.int16(dv >> 16), np.int16(di & 0xFFFF), np.int16(di >> 16)]
+    assert np.array_equal(back, t)
+    # 表编码的相量 == 输入相量 (±0.5 LSB), 且 step() 的记录与之一致
+    Vt = (t[:, 0] - 1j * t[:, 1]) * LSB
+    assert np.abs(Vt - V).max() <= 0.71 * LSB
+    fr = tw.step(); n_eff = tw.env.dwell_nsamp - tw.env.link.blank_nsamp
+    Vs = (fr.dwells['V_I'] - 1j * fr.dwells['V_Q']) * 2 * LSB / n_eff
+    assert np.abs(Vs - V).max() <= 2 * LSB * 2 / n_eff + 1e-9

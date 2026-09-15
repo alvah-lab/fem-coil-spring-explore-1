@@ -315,6 +315,34 @@ class Twin:
         return (np.clip(VI, -lim, lim).astype(np.int32), np.clip(VQ, -lim, lim).astype(np.int32),
                 np.clip(II, -lim, lim).astype(np.int32), np.clip(IQ, -lim, lim).astype(np.int32))
 
+    def dwell_phasors(self, advance: bool = False):
+        """当前时刻按驻留表算每个驻留的复电压 (V 通道, I 通道) 与标志; 给 step() 和固件驻留调制表用.
+        返回 (V, Ich, flags, truth_tuple)."""
+        env = self.env
+        q = np.asarray(self.scene.q_of_t(self.t), float)
+        dT = self.scene.dT_of_t(self.t) if self.scene.dT_of_t else None
+        sc_poses = self.scene.poses_of_t(self.t) if self.scene.poses_of_t else None
+        z, zc, poses, clamped = self.z61(q, dT, poses=sc_poses, present=self.scene.present)
+        tbl = np.asarray(self.dwell_table, np.uint16)
+        nd = len(tbl)
+        gpga = np.array(env.link.pga_gains)[(tbl >> 4) & 3]
+        zsig = zc if env.coff_enable else z
+        V = np.zeros(nd, complex); Ich = np.zeros(nd, complex)
+        i_ch = env.i_drive_A * self.link_gain_i * env.link.isense_V_per_A
+        flags = np.zeros(nd, np.uint8)
+        for k, wd in enumerate(tbl):
+            f = word_fields(int(wd))
+            n = obs_of_word(int(wd))
+            if n is not None:
+                V[k] = zsig[n] * env.i_drive_A * self.link_gain * gpga[k]
+            elif f['ref']:
+                V[k] = self.V_ref0 * self.link_gain * gpga[k]
+                flags[k] |= FLAG_REF
+            if f['vna']:
+                flags[k] |= FLAG_ISENSE
+            Ich[k] = i_ch
+        return V, Ich, flags, (q, poses, clamped, z, zc)
+
     def step(self, dt: float | None = None) -> Frame:
         env = self.env
         dt = env.frame_period_s if dt is None else dt
@@ -393,6 +421,16 @@ class Twin:
         I = (v @ c + (sc >> 1)) >> coef_q
         Q = (v @ s + (sc >> 1)) >> coef_q
         return np.clip(I, -2**31, 2**31 - 1), np.clip(Q, -2**31, 2**31 - 1)
+
+def mod_table_from_phasors(V: np.ndarray, Ich: np.ndarray) -> np.ndarray:
+    """固件 v0.2 驻留调制表 (DBG src 3): 每驻留 int16 [Vi, Vq, Ii, Iq] (LSB), 采样 v_n = Vi·cos + Vq·sin,
+    使主机 decode_dwells 得到的复电压 == 输入相量 (Vi = Re/LSB, Vq = −Im/LSB, 与 accumulate 同约定). 超出 ±2047 会在固件饱和."""
+    V = np.asarray(V, complex); Ich = np.asarray(Ich, complex)
+    t = np.zeros((len(V), 4), np.int16)
+    t[:, 0] = np.clip(np.rint(np.real(V) / LSB), -32768, 32767); t[:, 1] = np.clip(np.rint(-np.imag(V) / LSB), -32768, 32767)
+    t[:, 2] = np.clip(np.rint(np.real(Ich) / LSB), -32768, 32767); t[:, 3] = np.clip(np.rint(-np.imag(Ich) / LSB), -32768, 32767)
+    return t
+
 
 def decode_dwells(d: np.ndarray, n_eff: int) -> tuple[np.ndarray, np.ndarray]:
     """累加值 → 复幅度 V, I (伏). V = (I − jQ)·2·LSB/N_eff."""
