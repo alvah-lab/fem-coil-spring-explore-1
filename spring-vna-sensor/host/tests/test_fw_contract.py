@@ -40,19 +40,19 @@ def test_mod_table_command_and_phasors():
     tw = Twin(env=Environment(noise=NoiseModel(preset='off')), scene=Scenes.plate('B2', 0))
     V, Ich, flags, _ = tw.dwell_phasors()
     t = mod_table_from_phasors(V, Ich)
-    assert t.shape == (63, 4) and t.dtype == np.int16
+    assert t.shape == (63, 4) and t.dtype == np.int32
     pk = P.Command('mod_table', t).to_packets(0)
-    assert len(pk) == 1 + 2 * 63
+    assert len(pk) == 1 + 4 * 63
     op, _, seq, reg, ch, ln, data = P.unpack_cmd(pk[0]); assert reg == P.REG['MOD_ADDR'] and data == 0
     back = np.zeros_like(t)
+    names = ('MOD_VI', 'MOD_VQ', 'MOD_II', 'MOD_IQ')
     for i in range(63):
-        _, _, _, reg_v, _, _, dv = P.unpack_cmd(pk[1 + 2 * i]); _, _, _, reg_i, _, _, di = P.unpack_cmd(pk[2 + 2 * i])
-        assert reg_v == P.REG['MOD_V'] and reg_i == P.REG['MOD_I']
-        back[i] = np.array([dv & 0xFFFF, dv >> 16, di & 0xFFFF, di >> 16], np.uint16).astype(np.int16)
+        for j in range(4):
+            _, _, _, reg, _, _, d = P.unpack_cmd(pk[1 + 4 * i + j]); assert reg == P.REG[names[j]]
+            back[i, j] = np.array([d], np.uint32).astype(np.int32)[0]
     assert np.array_equal(back, t)
-    # 表编码的相量 == 输入相量 (±0.5 LSB), 且 step() 的记录与之一致
-    Vt = (t[:, 0] - 1j * t[:, 1]) * LSB / 16
-    assert np.abs(Vt - V).max() <= 0.71 * LSB / 16
+    Vt = (t[:, 0] - 1j * t[:, 1]) * LSB / 4096
+    assert np.abs(Vt - V).max() <= 0.71 * LSB / 4096
     fr = tw.step(); n_eff = tw.env.dwell_nsamp - tw.env.link.blank_nsamp
     Vs = (fr.dwells['V_I'] - 1j * fr.dwells['V_Q']) * 2 * LSB / n_eff
     assert np.abs(Vs - V).max() <= 2 * LSB * 2 / n_eff + 1e-9

@@ -32,7 +32,7 @@ REG = dict(DEVICE_ID=0x00, CTRL=0x04, STATUS=0x08, BULK_ADDR=0x10, BULK_DATA=0x1
            DBG_CTRL=0x80, CAP_CTRL=0x84, CAP_DWELL=0x88, CAP_CH=0x0C,
            ADC_STAT0=0x94, ADC_STAT1=0x98, ADC_SUM0=0x9C, ADC_SUM1=0xA0,
            LINK_WORD=0xA4, MON_LAST=0xA8, MON_MIN=0xAC, MON_MAX=0xB0, LINK_FORCE=0xB4, DAC_TEST=0xB8,
-           MOD_ADDR=0xBC, MOD_V=0xC0, MOD_I=0xC4)   # 驻留调制表: 写 MOD_ADDR, 每驻留写 MOD_V={Vq,Vi} 再 MOD_I={Iq,Ii} (自增)
+           MOD_ADDR=0xBC, MOD_VI=0xC0, MOD_VQ=0xC4, MOD_II=0xC8, MOD_IQ=0xCC)   # 驻留调制表: 写 MOD_ADDR, 每驻留写 VI,VQ,II,IQ (int32 LSB/4096, 写 IQ 后自增)
 # DBG_CTRL 位: [1:0] ADC 源 0 真ADC / 1 DAC1 数字自环 / 2 斜坡+常数; [2] 链路自应答 (无 A704); [3] 帧测试图样
 DBG_SRC_ADC, DBG_SRC_LOOP, DBG_SRC_RAMP, DBG_SRC_MOD = 0, 1, 2, 3
 DBG_SELFACK, DBG_PATTERN = 0x4, 0x8
@@ -100,12 +100,12 @@ class Command:
         elif self.name == 'stop':
             pk.append(pack_cmd(OP_REG_WRITE, seq0, REG['FRAME_CTRL'], 0, 0, FRAME_CTRL_STOP))
         elif self.name == 'mod_table':
-            # value: (n,4) int16 [Vi, Vq, Ii, Iq] (twin.mod_table_from_phasors)
-            t = np.asarray(self.value, dtype=np.int16).astype(np.int64) & 0xFFFF
+            # value: (n,4) int32 [Vi, Vq, Ii, Iq] in LSB/4096 (twin.mod_table_from_phasors)
+            t = np.asarray(self.value, dtype=np.int32).astype(np.int64) & 0xFFFFFFFF
             pk.append(pack_cmd(OP_REG_WRITE, seq0, REG['MOD_ADDR'], 0, 0, 0))
-            for i, (vi, vq, ii, iq) in enumerate(t):
-                pk.append(pack_cmd(OP_REG_WRITE, seq0 + 1 + 2 * i, REG['MOD_V'], 0, 0, int((vq << 16) | vi)))
-                pk.append(pack_cmd(OP_REG_WRITE, seq0 + 2 + 2 * i, REG['MOD_I'], 0, 0, int((iq << 16) | ii)))
+            for i, row in enumerate(t):
+                for j, name in enumerate(('MOD_VI', 'MOD_VQ', 'MOD_II', 'MOD_IQ')):
+                    pk.append(pack_cmd(OP_REG_WRITE, seq0 + 1 + 4 * i + j, REG[name], 0, 0, int(row[j])))
         elif self.name == 'dwell_table':
             tbl = np.asarray(self.value, dtype=np.uint16)
             for i, wv in enumerate(tbl):
